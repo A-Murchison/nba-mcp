@@ -1,0 +1,8 @@
+{
+  "resultSets": [
+    {
+      "headers": ["PLAYER_ID", "PLAYER", "NUM", "POSITION"],
+      "rowSet": [[1628369, "Jayson Tatum", "0", "F"], [1627759, "Jaylen Brown", "7", "G-F"]]
+    }
+  ]
+}

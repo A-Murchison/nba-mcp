@@ -1,0 +1,26 @@
+{
+  "game": {
+    "gameStatus": 2,
+    "gameStatusText": "Q3 04:18",
+    "period": 3,
+    "gameClock": "PT04M18.00S",
+    "homeTeam": {
+      "teamId": 1610612738,
+      "teamTricode": "BOS",
+      "teamCity": "Boston",
+      "teamName": "Celtics",
+      "score": 82,
+      "statistics": { "reboundsTotal": 32, "assists": 21, "steals": 5, "blocks": 4, "turnoversTotal": 8, "fieldGoalsMade": 31, "fieldGoalsAttempted": 67, "threePointersMade": 11, "threePointersAttempted": 29, "freeThrowsMade": 9, "freeThrowsAttempted": 12 },
+      "players": [{ "personId": 1628369, "name": "Jayson Tatum", "firstName": "Jayson", "familyName": "Tatum", "position": "F", "jerseyNum": "0", "status": "ACTIVE", "starter": true, "played": true, "statistics": { "minutes": "PT27M34.00S", "points": 24, "reboundsTotal": 7, "assists": 4, "steals": 1, "blocks": 1, "turnovers": 2, "plusMinusPoints": 8 } }]
+    },
+    "awayTeam": {
+      "teamId": 1610612747,
+      "teamTricode": "LAL",
+      "teamCity": "Los Angeles",
+      "teamName": "Lakers",
+      "score": 78,
+      "statistics": { "reboundsTotal": 35, "assists": 20 },
+      "players": []
+    }
+  }
+}

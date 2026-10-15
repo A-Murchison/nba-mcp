@@ -13,9 +13,9 @@ The goal is to help AI clients answer questions like:
 
 ## Status
 
-Phases 1–3 are implemented: the stdio MCP server registers all v0.1 tools, routes them through the provider abstraction, and applies an in-memory cache with request coalescing. The mock provider is the default, so the server works without API keys.
+The stdio MCP server registers all v0.1 tools, routes them through a provider abstraction, and applies an in-memory cache with request coalescing. The mock provider is the default, so the server works without API keys. A real `nba-com` adapter is also available for public nba.com live endpoints.
 
-The foundations include scope, TypeScript scaffold, provider contract, capability model, canonical live data models, freshness metadata, structured error types, normalized mock provider responses, configuration, and initial docs.
+The foundations include a TypeScript scaffold, provider contract, capability model, canonical live data models, freshness metadata, structured error types, normalized mock responses, configuration, and a live nba.com adapter.
 
 ## v0.1 tool scope
 
@@ -48,7 +48,7 @@ MCP tools
   -> domain services
   -> DataProvider interface
       -> MockProvider
-      -> NbaComProvider (planned)
+      -> NbaComProvider
   -> canonical models
   -> cache/freshness metadata
 ```
@@ -64,6 +64,7 @@ The server caches responses in memory and coalesces concurrent identical request
 Copy `.env.example` and adjust as needed:
 
 ```text
+# Use mock for deterministic local development, or nba-com for public live endpoints.
 NBA_MCP_PROVIDER=mock
 NBA_MCP_API_KEY=
 NBA_MCP_CACHE_TTL_LIVE_SECONDS=10
@@ -72,11 +73,18 @@ NBA_MCP_TIMEZONE=America/New_York
 NBA_MCP_LOG_LEVEL=info
 ```
 
+### Provider behavior
+
+`mock` is deterministic and supports every v0.1 tool. It is the recommended provider for development and CI.
+
+`nba-com` uses public nba.com live JSON for the current-day scoreboard, game status, box score, and play-by-play, plus the nba.com roster endpoint. It does not require `NBA_MCP_API_KEY`. `search_teams` uses the built-in directory of all 30 NBA teams, so it can resolve a team even when it is not on today's slate. nba.com may block automated traffic, rate-limit requests, or change its undocumented response formats. This adapter intentionally supports only the current-day scoreboard: an arbitrary historical `date` is not available. Its player-directory search is currently unavailable; use `get_team_roster` after resolving a team instead.
+
 ## Development
 
 ```bash
 npm install
 npm run typecheck
+npm test
 npm run build
 npm start
 ```
@@ -115,13 +123,12 @@ Example MCP client configuration:
 - `search_teams` — resolve team names/cities/abbreviations to canonical team IDs
 - `search_players` — resolve current players by name
 
+## Errors
+
+Tool failures are returned as MCP error results with a structured JSON envelope. Expected provider failures use stable codes such as `NOT_FOUND`, `DATA_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, and `PROVIDER_RATE_LIMITED`; callers can use the message and any suggested alternatives to recover. Invalid tool arguments are rejected by the MCP schema before the tool runs.
+
 ## Legal/provider disclaimer
 
 This project is not affiliated with, endorsed by, or sponsored by the NBA.
 
 Users are responsible for complying with the terms of their configured data provider. This repository should not include proprietary live data dumps or large unlicensed historical datasets.
-
-## More docs
-
-- [Phase 0 Scope and Architecture](docs/phase-0-scope.md)
-- [Phase 1 Canonical Live Data Models](docs/phase-1-models.md)

@@ -22,6 +22,7 @@ import type {
   GetTodaysGamesInput,
   SearchPlayersInput,
 } from "../DataProvider.js";
+import { ProviderError } from "../ProviderError.js";
 
 const generatedAt = new Date().toISOString();
 
@@ -183,15 +184,32 @@ export class MockProvider implements DataProvider {
   }
 
   async getGameStatus(gameId: string): Promise<GameStatusResponse> {
-    const game = [liveGame, scheduledGame, finalGame].find((candidate) => candidate.gameId === gameId) ?? liveGame;
+    const game = [liveGame, scheduledGame, finalGame].find((candidate) => candidate.gameId === gameId);
+    if (!game) throw new ProviderError("NOT_FOUND", `Game '${gameId}' was not found in mock data.`);
     return { game, meta: metadata(this.name, game.status.state === "in_progress" || game.status.state === "halftime") };
   }
 
-  async getGameBoxScore(_gameId: string): Promise<GameBoxScoreResponse> {
+  async getGameBoxScore(gameId: string): Promise<GameBoxScoreResponse> {
+    if (![liveGame, scheduledGame, finalGame].some((game) => game.gameId === gameId)) {
+      throw new ProviderError("NOT_FOUND", `Game '${gameId}' was not found in mock data.`);
+    }
+    if (gameId !== boxScore.gameId) {
+      throw new ProviderError("DATA_UNAVAILABLE", `A box score is not available for mock game '${gameId}'.`, {
+        suggestedAlternatives: ["Use get_game_status", "Use get_todays_games"],
+      });
+    }
     return { boxScore, meta: metadata(this.name, true) };
   }
 
   async getRecentGameEvents(input: GetRecentGameEventsInput): Promise<RecentGameEventsResponse> {
+    if (![liveGame, scheduledGame, finalGame].some((game) => game.gameId === input.gameId)) {
+      throw new ProviderError("NOT_FOUND", `Game '${input.gameId}' was not found in mock data.`);
+    }
+    if (input.gameId !== liveGame.gameId) {
+      throw new ProviderError("DATA_UNAVAILABLE", `Play-by-play is not available for mock game '${input.gameId}'.`, {
+        suggestedAlternatives: ["Use get_game_status", "Use get_todays_games"],
+      });
+    }
     return {
       gameId: input.gameId,
       events: events.slice(0, input.limit ?? 10),
@@ -200,7 +218,8 @@ export class MockProvider implements DataProvider {
   }
 
   async getTeamRoster(teamId: string): Promise<TeamRosterResponse> {
-    const team = teams.find((candidate) => candidate.id === teamId) ?? teams[0]!;
+    const team = teams.find((candidate) => candidate.id === teamId);
+    if (!team) throw new ProviderError("NOT_FOUND", `Team '${teamId}' was not found in mock data.`);
     return {
       roster: {
         team,

@@ -1,0 +1,27 @@
+{
+  "scoreboard": {
+    "games": [
+      {
+        "gameId": "0022500001",
+        "gameDateEst": "2025-10-21",
+        "gameStatus": 2,
+        "gameStatusText": "Halftime",
+        "period": 2,
+        "gameClock": "PT00M00.00S",
+        "homeTeam": { "teamId": 1610612738, "teamTricode": "BOS", "teamCity": "Boston", "teamName": "Celtics", "score": 58 },
+        "awayTeam": { "teamId": 1610612747, "teamTricode": "LAL", "teamCity": "Los Angeles", "teamName": "Lakers", "score": 54 },
+        "arena": { "arenaName": "TD Garden" }
+      },
+      {
+        "gameId": "0022500002",
+        "gameDateEst": "2025-10-21",
+        "gameStatus": 1,
+        "gameStatusText": "7:30 pm ET",
+        "period": 0,
+        "gameTimeUTC": "2025-10-22T00:30:00Z",
+        "homeTeam": { "teamId": 1610612744, "teamTricode": "GSW", "teamCity": "Golden State", "teamName": "Warriors", "score": 0 },
+        "awayTeam": { "teamId": 1610612743, "teamTricode": "DEN", "teamCity": "Denver", "teamName": "Nuggets", "score": 0 }
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "game": {
+    "actions": [
+      { "actionNumber": 1, "period": 3, "clock": "PT05M02.00S", "orderNumber": 1, "teamId": 1610612747, "personId": 203999, "actionType": "3pt", "description": "Player makes 3PT Jump Shot", "scoreHome": 80, "scoreAway": 78, "timeActual": "2025-10-21T23:00:00Z" },
+      { "actionNumber": 2, "period": 3, "clock": "PT04M18.00S", "orderNumber": 2, "teamId": 1610612738, "personId": 1628369, "actionType": "2pt", "description": "Jayson Tatum makes Layup", "scoreHome": 82, "scoreAway": 78, "timeActual": "2025-10-21T23:01:00Z" }
+    ]
+  }
+}

@@ -2,6 +2,7 @@ import type { Config } from "../config.js";
 import { CachedDataProvider } from "./CachedDataProvider.js";
 import type { DataProvider } from "./DataProvider.js";
 import { MockProvider } from "./mock/MockProvider.js";
+import { NbaComProvider } from "./NbaComProvider.js";
 
 const SCHEDULE_CACHE_TTL_SECONDS = 60;
 
@@ -13,7 +14,8 @@ export function createProvider(config: Config): DataProvider {
       provider = new MockProvider();
       break;
     case "nba-com":
-      throw new Error("The nba.com provider adapter is planned but not implemented yet.");
+      provider = new NbaComProvider();
+      break;
   }
 
   return new CachedDataProvider(provider, {

@@ -7,6 +7,7 @@ import { V01_TOOL_NAMES, type ServerCapabilities } from "./domain/capabilities.j
 import { errorResponse, type ErrorResponse } from "./domain/errors.js";
 import type { DataProvider } from "./providers/DataProvider.js";
 import { createProvider } from "./providers/index.js";
+import { ProviderError } from "./providers/ProviderError.js";
 
 const SERVER_NAME = "nba-mcp";
 const SERVER_VERSION = "0.1.0";
@@ -24,6 +25,15 @@ function errorToolResult(error: ErrorResponse): CallToolResult {
 }
 
 function internalErrorResult(error: unknown, providerName?: string): CallToolResult {
+  if (error instanceof ProviderError) {
+    return errorToolResult(
+      errorResponse(error.code, error.message, {
+        ...error.options,
+        ...(providerName ? { provider: providerName } : {}),
+      }),
+    );
+  }
+
   const message = error instanceof Error ? error.message : String(error);
   return errorToolResult(
     errorResponse("INTERNAL_ERROR", `NBA MCP tool failed: ${message}`, {
@@ -51,7 +61,8 @@ export async function buildServerCapabilities(provider: DataProvider): Promise<S
     providerCapabilities,
     liveUpdateFrequencySeconds: providerCapabilities.updateFrequencySeconds,
     knownLimitations: [
-      "No real NBA data provider is enabled yet; use the normalized mock provider for local development.",
+      "The nba.com adapter depends on public upstream endpoints and may be blocked, rate-limited, or changed without notice.",
+      "nba.com schedule lookups are limited to its current-day live scoreboard; player search is unavailable with that provider.",
       "Betting, odds, fantasy projections, shot charts, and historical analytics are out of v0.1 scope.",
       "Live freshness depends on the active provider; live responses are cached only for the configured short TTL.",
     ],
