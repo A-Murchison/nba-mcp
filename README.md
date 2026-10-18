@@ -61,7 +61,7 @@ The server caches responses in memory and coalesces concurrent identical request
 
 ## Configuration
 
-Copy `.env.example` and adjust as needed:
+Copy `.env.example` to `.env.local` and adjust as needed. The server loads `.env.local` automatically; explicit environment variables supplied by an MCP client take precedence:
 
 ```text
 # Use mock for deterministic local development, or nba-com for public live endpoints.
@@ -95,21 +95,7 @@ npm start
 npm run dev
 ```
 
-Example MCP client configuration:
-
-```json
-{
-  "mcpServers": {
-    "nba-mcp": {
-      "command": "node",
-      "args": ["/path/to/nba-mcp/dist/index.js"],
-      "env": {
-        "NBA_MCP_PROVIDER": "mock"
-      }
-    }
-  }
-}
-```
+See [MCP client configuration](docs/client-configuration.md) for Claude Desktop and Visual Studio Code setup instructions. Both examples use the deterministic mock provider and include connection verification steps.
 
 ## Tools
 

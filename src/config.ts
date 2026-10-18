@@ -1,3 +1,8 @@
+import { config as loadEnvFile } from "dotenv";
+
+// Local configuration is optional; explicit process environment values still take precedence.
+loadEnvFile({ path: ".env.local", quiet: true });
+
 export interface Config {
   provider: "mock" | "nba-com";
   apiKey?: string;
