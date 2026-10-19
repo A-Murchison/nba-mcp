@@ -18,6 +18,16 @@ export interface ResponseMetadata {
   cacheStatus: CacheStatus;
   /** Time spent in the provider adapter, when known. */
   providerLatencyMs?: number;
+  /** Upstream dataset used for a historical response, when applicable. */
+  dataset?: string;
+  /** Explicit requested historical season, when applicable. */
+  season?: Season;
+  /** Explicit requested competition phase, when applicable. */
+  seasonType?: SeasonType;
+  /** Whether the upstream coverage is complete, partial, or unknown. */
+  coverage?: "complete" | "partial" | "unknown";
+  /** Non-authoritative caveat about source coverage or result completeness. */
+  coverageNote?: string;
 }
 
 export interface WithMetadata {
@@ -190,4 +200,159 @@ export interface SearchTeamsResponse extends WithMetadata {
 export interface SearchPlayersResponse extends WithMetadata {
   query: string;
   players: Player[];
+}
+
+/** NBA season label, formatted as YYYY-YY (for example 2023-24). */
+export type Season = string;
+export type SeasonType = "Regular Season" | "Playoffs";
+export type PerMode = "PerGame" | "Totals";
+export type StatScope = "player" | "team";
+
+/** Request pagination. Cursors are opaque provider-neutral strings. */
+export interface Pagination {
+  limit?: number;
+  cursor?: string;
+}
+
+/** Result pagination and completeness information. */
+export interface PageInfo {
+  limit: number;
+  nextCursor?: string;
+  hasMore: boolean;
+  /** True when a requested bounded page may omit further matching records. */
+  isBoundedResult: boolean;
+}
+
+/** Traditional counting statistics. Undefined means the source did not supply a field. */
+export interface TraditionalStats {
+  gamesPlayed?: number;
+  gamesStarted?: number;
+  minutes?: number;
+  points?: number;
+  rebounds?: number;
+  offensiveRebounds?: number;
+  defensiveRebounds?: number;
+  assists?: number;
+  steals?: number;
+  blocks?: number;
+  turnovers?: number;
+  fouls?: number;
+  fieldGoalsMade?: number;
+  fieldGoalsAttempted?: number;
+  threePointersMade?: number;
+  threePointersAttempted?: number;
+  freeThrowsMade?: number;
+  freeThrowsAttempted?: number;
+  wins?: number;
+  losses?: number;
+}
+
+export interface PlayerSeasonStats {
+  player: Player;
+  season: Season;
+  seasonType: SeasonType;
+  perMode: PerMode;
+  stats: TraditionalStats;
+}
+
+export interface TeamSeasonStats {
+  team: Team;
+  season: Season;
+  seasonType: SeasonType;
+  perMode: PerMode;
+  stats: TraditionalStats;
+}
+
+export interface HistoricalGameLogEntry {
+  game: Game;
+  matchup?: string;
+  result?: "W" | "L";
+  stats: TraditionalStats;
+}
+
+export interface PlayerGameLogEntry extends HistoricalGameLogEntry {
+  player: Player;
+}
+
+export interface TeamGameLogEntry extends HistoricalGameLogEntry {
+  team: Team;
+}
+
+export interface LeagueLeader {
+  scope: StatScope;
+  rank: number;
+  player?: Player;
+  team?: Team;
+  statCategory: string;
+  value: number;
+  season: Season;
+  seasonType: SeasonType;
+  perMode: PerMode;
+}
+
+export interface StandingsEntry {
+  team: Team;
+  conference?: string;
+  division?: string;
+  wins: number;
+  losses: number;
+  winningPercentage?: number;
+  gamesBehind?: number;
+  conferenceRank?: number;
+  divisionRank?: number;
+}
+
+/** A final game returned by a provider's historical data path. */
+export interface HistoricalGame {
+  game: Game;
+  boxScore?: BoxScore;
+}
+
+export interface PlayerSeasonStatsResponse extends WithMetadata {
+  playerSeasonStats: PlayerSeasonStats;
+}
+
+export interface TeamSeasonStatsResponse extends WithMetadata {
+  teamSeasonStats: TeamSeasonStats;
+}
+
+export interface PlayerGameLogResponse extends WithMetadata {
+  player: Player;
+  season: Season;
+  seasonType: SeasonType;
+  games: PlayerGameLogEntry[];
+  page: PageInfo;
+}
+
+export interface TeamGameLogResponse extends WithMetadata {
+  team: Team;
+  season: Season;
+  seasonType: SeasonType;
+  games: TeamGameLogEntry[];
+  page: PageInfo;
+}
+
+export interface LeagueLeadersResponse extends WithMetadata {
+  season: Season;
+  seasonType: SeasonType;
+  perMode: PerMode;
+  statCategory: string;
+  leaders: LeagueLeader[];
+  page: PageInfo;
+}
+
+export interface LeagueStandingsResponse extends WithMetadata {
+  season: Season;
+  seasonType: SeasonType;
+  standings: StandingsEntry[];
+}
+
+export interface HistoricalGameBoxScoreResponse extends WithMetadata {
+  historicalGame: HistoricalGame;
+}
+
+export interface HistoricalGameEventsResponse extends WithMetadata {
+  gameId: string;
+  events: PlayByPlayEvent[];
+  page: PageInfo;
 }

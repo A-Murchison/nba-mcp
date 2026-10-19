@@ -2,12 +2,20 @@ import type { ProviderCapabilities } from "../domain/capabilities.js";
 import type {
   GameBoxScoreResponse,
   GamesThisWeekResponse,
+  HistoricalGameBoxScoreResponse,
+  HistoricalGameEventsResponse,
+  LeagueLeadersResponse,
+  LeagueStandingsResponse,
   GameStatusResponse,
   LiveGamesResponse,
   RecentGameEventsResponse,
   SearchPlayersResponse,
   SearchTeamsResponse,
+  TeamGameLogResponse,
   TeamRosterResponse,
+  TeamSeasonStatsResponse,
+  PlayerGameLogResponse,
+  PlayerSeasonStatsResponse,
   TodaysGamesResponse,
 } from "../domain/models.js";
 
@@ -36,6 +44,46 @@ export interface SearchPlayersInput {
   limit?: number;
 }
 
+export type HistoricalSeasonType = "Regular Season" | "Playoffs";
+export type HistoricalPerMode = "PerGame" | "Totals";
+
+export interface HistoricalSeasonInput {
+  season: string;
+  seasonType?: HistoricalSeasonType;
+  perMode?: HistoricalPerMode;
+}
+
+export interface GetPlayerSeasonStatsInput extends HistoricalSeasonInput { playerId: string; }
+export interface GetTeamSeasonStatsInput extends HistoricalSeasonInput { teamId: string; }
+export interface GetPlayerGameLogInput extends HistoricalSeasonInput {
+  playerId: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+  cursor?: string;
+}
+export interface GetTeamGameLogInput extends HistoricalSeasonInput {
+  teamId: string;
+  dateFrom?: string;
+  dateTo?: string;
+  limit?: number;
+  cursor?: string;
+}
+export interface GetLeagueLeadersInput extends HistoricalSeasonInput {
+  statCategory: string;
+  limit?: number;
+  cursor?: string;
+}
+export interface GetLeagueStandingsInput {
+  season: string;
+  seasonType?: HistoricalSeasonType;
+}
+export interface GetHistoricalGameEventsInput {
+  gameId: string;
+  limit?: number;
+  cursor?: string;
+}
+
 /**
  * Provider-neutral contract used by MCP tools and domain services.
  *
@@ -55,5 +103,13 @@ export interface DataProvider {
   getTeamRoster(teamId: string): Promise<TeamRosterResponse>;
   searchTeams(query: string): Promise<SearchTeamsResponse>;
   searchPlayers(input: SearchPlayersInput): Promise<SearchPlayersResponse>;
+  getPlayerSeasonStats(input: GetPlayerSeasonStatsInput): Promise<PlayerSeasonStatsResponse>;
+  getPlayerGameLog(input: GetPlayerGameLogInput): Promise<PlayerGameLogResponse>;
+  getTeamSeasonStats(input: GetTeamSeasonStatsInput): Promise<TeamSeasonStatsResponse>;
+  getTeamGameLog(input: GetTeamGameLogInput): Promise<TeamGameLogResponse>;
+  getLeagueLeaders(input: GetLeagueLeadersInput): Promise<LeagueLeadersResponse>;
+  getLeagueStandings(input: GetLeagueStandingsInput): Promise<LeagueStandingsResponse>;
+  getHistoricalGameBoxScore(gameId: string): Promise<HistoricalGameBoxScoreResponse>;
+  getHistoricalGameEvents(input: GetHistoricalGameEventsInput): Promise<HistoricalGameEventsResponse>;
   getCapabilities(): Promise<ProviderCapabilities>;
 }

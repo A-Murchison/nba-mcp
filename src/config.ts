@@ -8,6 +8,8 @@ export interface Config {
   apiKey?: string;
   cacheTtlLiveSeconds: number;
   cacheTtlRosterSeconds: number;
+  cacheTtlHistoricalSeconds: number;
+  cacheTtlHistoricalLogSeconds: number;
   timezone: string;
   logLevel: "debug" | "info" | "warn" | "error";
 }
@@ -40,6 +42,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     ...(env.NBA_MCP_API_KEY ? { apiKey: env.NBA_MCP_API_KEY } : {}),
     cacheTtlLiveSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_LIVE_SECONDS", 10),
     cacheTtlRosterSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_ROSTER_SECONDS", 86_400),
+    cacheTtlHistoricalSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_HISTORICAL_SECONDS", 604_800),
+    cacheTtlHistoricalLogSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_HISTORICAL_LOG_SECONDS", 86_400),
     timezone: env.NBA_MCP_TIMEZONE ?? "America/New_York",
     logLevel: logLevel as Config["logLevel"],
   };

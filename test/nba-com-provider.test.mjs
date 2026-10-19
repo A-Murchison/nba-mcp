@@ -133,6 +133,8 @@ test("NbaComProvider uses CDN browser headers and retries rate-limited schedule 
   assert.equal(coreHeaders.Referer, "https://www.nba.com/");
   assert.equal(statsHeaders["User-Agent"], "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0");
   assert.equal(statsHeaders.Origin, "https://www.nba.com");
+  assert.equal(statsHeaders["x-nba-stats-origin"], "stats");
+  assert.equal(statsHeaders["x-nba-stats-token"], "true");
 });
 
 test("NbaComProvider returns typed errors for unknown teams and upstream HTTP failures", async () => {

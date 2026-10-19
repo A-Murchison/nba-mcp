@@ -2,6 +2,12 @@ import type { ProviderCapabilities } from "../../domain/capabilities.js";
 import type {
   BoxScore,
   Game,
+  HistoricalGameBoxScoreResponse,
+  HistoricalGameEventsResponse,
+  HistoricalGameLogEntry,
+  LeagueLeadersResponse,
+  LeagueStandingsResponse,
+  TraditionalStats,
   GameBoxScoreResponse,
   GamesThisWeekResponse,
   GameStatusResponse,
@@ -20,7 +26,14 @@ import type {
 import type {
   DataProvider,
   GetGamesThisWeekInput,
+  GetHistoricalGameEventsInput,
+  GetLeagueLeadersInput,
+  GetLeagueStandingsInput,
+  GetPlayerGameLogInput,
+  GetPlayerSeasonStatsInput,
   GetRecentGameEventsInput,
+  GetTeamGameLogInput,
+  GetTeamSeasonStatsInput,
   GetTodaysGamesInput,
   SearchPlayersInput,
 } from "../DataProvider.js";
@@ -61,6 +74,14 @@ const teams: Team[] = [
     conference: "Western",
     division: "Pacific",
   },
+  {
+    id: "CHI",
+    abbreviation: "CHI",
+    name: "Chicago Bulls",
+    city: "Chicago",
+    conference: "Eastern",
+    division: "Central",
+  },
 ];
 
 const players: Player[] = [
@@ -70,6 +91,7 @@ const players: Player[] = [
   { id: "mock-murray", fullName: "Jamal Murray", firstName: "Jamal", lastName: "Murray", teamId: "DEN", position: "G", jerseyNumber: "27", active: true, height: "6-4", weight: "215" },
   { id: "mock-lebron", fullName: "LeBron James", firstName: "LeBron", lastName: "James", teamId: "LAL", position: "F", jerseyNumber: "23", active: true, height: "6-9", weight: "250" },
   { id: "mock-curry", fullName: "Stephen Curry", firstName: "Stephen", lastName: "Curry", teamId: "GSW", position: "G", jerseyNumber: "30", active: true, height: "6-2", weight: "185" },
+  { id: "mock-jordan", fullName: "Michael Jordan", firstName: "Michael", lastName: "Jordan", teamId: "CHI", position: "G", jerseyNumber: "23", active: false },
 ];
 
 const liveGame: LiveGame = {
@@ -153,6 +175,27 @@ function includesQuery(value: string, query: string): boolean {
   return value.toLocaleLowerCase().includes(query.toLocaleLowerCase());
 }
 
+function historicalMetadata(source: string, season: string, seasonType: "Regular Season" | "Playoffs", dataset: string): ResponseMetadata {
+  return { ...metadata(source, false), season, seasonType, dataset, coverage: "complete" };
+}
+
+function validateHistoricalInput(season: string, seasonType = "Regular Season", dateFrom?: string, dateTo?: string): void {
+  if (!/^\d{4}-\d{2}$/.test(season)) throw new ProviderError("INVALID_ARGUMENT", "season must use YYYY-YY format.");
+  if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
+  if ((dateFrom && !/^\d{4}-\d{2}-\d{2}$/.test(dateFrom)) || (dateTo && !/^\d{4}-\d{2}-\d{2}$/.test(dateTo))) throw new ProviderError("INVALID_ARGUMENT", "dateFrom and dateTo must use YYYY-MM-DD format.");
+  if (dateFrom && dateTo && dateFrom > dateTo) throw new ProviderError("INVALID_ARGUMENT", "dateFrom must not be after dateTo.");
+}
+
+function page<T>(items: T[], limit = 100, cursor?: string): { items: T[]; limit: number; nextCursor?: string; hasMore: boolean; isBoundedResult: boolean } {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new ProviderError("INVALID_ARGUMENT", "limit must be an integer from 1 through 100.");
+  const start = cursor === undefined ? 0 : Number.parseInt(cursor, 10);
+  if (!Number.isInteger(start) || start < 0 || (cursor !== undefined && String(start) !== cursor)) throw new ProviderError("INVALID_ARGUMENT", "cursor is invalid for this result set.");
+  const result = items.slice(start, start + limit);
+  const next = start + result.length;
+  const hasMore = next < items.length;
+  return { items: result, limit, ...(hasMore ? { nextCursor: String(next) } : {}), hasMore, isBoundedResult: hasMore };
+}
+
 /**
  * Mock provider returning normalized canonical data.
  *
@@ -168,7 +211,15 @@ export class MockProvider implements DataProvider {
     supportsPlayByPlay: true,
     supportsCurrentRosters: true,
     supportsInjuries: false,
-    supportsHistoricalStats: false,
+    supportsHistoricalStats: true,
+    supportsPlayerSeasonStats: true,
+    supportsPlayerGameLogs: true,
+    supportsTeamSeasonStats: true,
+    supportsTeamGameLogs: true,
+    supportsLeagueLeaders: false,
+    supportsHistoricalStandings: false,
+    supportsHistoricalBoxScores: false,
+    supportsHistoricalPlayByPlay: false,
     updateFrequencySeconds: 10,
   };
 
@@ -264,6 +315,56 @@ export class MockProvider implements DataProvider {
       meta: metadata(this.name, false),
     };
   }
+
+  async getPlayerSeasonStats(input: GetPlayerSeasonStatsInput) {
+    validateHistoricalInput(input.season, input.seasonType);
+    const player = players.find((candidate) => candidate.id === input.playerId);
+    if (!player) throw new ProviderError("NOT_FOUND", `Player '${input.playerId}' was not found in mock data.`);
+    if (player.id !== "mock-jordan" || !["1990-91", "1991-92"].includes(input.season)) throw new ProviderError("DATA_UNAVAILABLE", `Mock historical coverage does not include ${input.season} for '${input.playerId}'.`);
+    const seasonType = input.seasonType ?? "Regular Season";
+    const perMode = input.perMode ?? "PerGame";
+    const stats: TraditionalStats = seasonType === "Playoffs"
+      ? { gamesPlayed: 17, minutes: perMode === "Totals" ? 689 : 40.5, points: perMode === "Totals" ? 529 : 31.1, rebounds: perMode === "Totals" ? 112 : 6.6, assists: perMode === "Totals" ? 94 : 5.5 }
+      : { gamesPlayed: 82, minutes: perMode === "Totals" ? 3_033 : 37.0, points: perMode === "Totals" ? 2_580 : 31.5, rebounds: perMode === "Totals" ? 539 : 6.6, assists: perMode === "Totals" ? 453 : 5.5 };
+    return { playerSeasonStats: { player, season: input.season, seasonType, perMode, stats }, meta: historicalMetadata(this.name, input.season, seasonType, "mock.player-season") };
+  }
+
+  async getPlayerGameLog(input: GetPlayerGameLogInput) {
+    validateHistoricalInput(input.season, input.seasonType, input.dateFrom, input.dateTo);
+    const player = players.find((candidate) => candidate.id === input.playerId);
+    if (!player) throw new ProviderError("NOT_FOUND", `Player '${input.playerId}' was not found in mock data.`);
+    const seasonType = input.seasonType ?? "Regular Season";
+    if (player.id !== "mock-jordan" || input.season !== "1990-91") return { player, season: input.season, seasonType, games: [], page: { limit: input.limit ?? 100, hasMore: false, isBoundedResult: false }, meta: historicalMetadata(this.name, input.season, seasonType, "mock.player-game-log") };
+    const games: HistoricalGameLogEntry[] = [{ game: { gameId: "mock-1991-001", date: "1991-04-21", status: { state: "final" as const, period: 4, statusText: "Final" }, homeTeam: { ...teams[4]!, score: 109 }, awayTeam: { ...teams[0]!, score: 98 } }, matchup: "CHI vs. BOS", result: "W" as const, stats: { minutes: 38, points: 33, rebounds: 7, assists: 6 } }, { game: { gameId: "mock-1991-002", date: "1991-04-19", status: { state: "final" as const, period: 4, statusText: "Final" }, homeTeam: { ...teams[0]!, score: 101 }, awayTeam: { ...teams[4]!, score: 104 } }, matchup: "CHI @ BOS", result: "W" as const, stats: { minutes: 41, points: 29, rebounds: 5, assists: 8 } }].filter((entry) => (!input.dateFrom || entry.game.date >= input.dateFrom) && (!input.dateTo || entry.game.date <= input.dateTo));
+    const result = page(games, input.limit, input.cursor);
+    return { player, season: input.season, seasonType, games: result.items.map((game) => ({ ...game, player })), page: { limit: result.limit, hasMore: result.hasMore, isBoundedResult: result.isBoundedResult, ...(result.nextCursor ? { nextCursor: result.nextCursor } : {}) }, meta: historicalMetadata(this.name, input.season, seasonType, "mock.player-game-log") };
+  }
+
+  async getTeamSeasonStats(input: GetTeamSeasonStatsInput) {
+    validateHistoricalInput(input.season, input.seasonType);
+    const team = teams.find((candidate) => candidate.id === input.teamId);
+    if (!team) throw new ProviderError("NOT_FOUND", `Team '${input.teamId}' was not found in mock data.`);
+    if (team.id !== "CHI" || input.season !== "1990-91") throw new ProviderError("DATA_UNAVAILABLE", `Mock historical coverage does not include ${input.season} for '${input.teamId}'.`);
+    const seasonType = input.seasonType ?? "Regular Season";
+    const perMode = input.perMode ?? "PerGame";
+    const stats: TraditionalStats = { gamesPlayed: seasonType === "Playoffs" ? 17 : 82, wins: seasonType === "Playoffs" ? 15 : 61, losses: seasonType === "Playoffs" ? 2 : 21, points: perMode === "Totals" ? (seasonType === "Playoffs" ? 1_820 : 9_012) : (seasonType === "Playoffs" ? 107.1 : 109.9) };
+    return { teamSeasonStats: { team, season: input.season, seasonType, perMode, stats }, meta: historicalMetadata(this.name, input.season, seasonType, "mock.team-season") };
+  }
+
+  async getTeamGameLog(input: GetTeamGameLogInput) {
+    validateHistoricalInput(input.season, input.seasonType, input.dateFrom, input.dateTo);
+    const team = teams.find((candidate) => candidate.id === input.teamId);
+    if (!team) throw new ProviderError("NOT_FOUND", `Team '${input.teamId}' was not found in mock data.`);
+    const seasonType = input.seasonType ?? "Regular Season";
+    if (team.id !== "CHI" || input.season !== "1990-91") return { team, season: input.season, seasonType, games: [], page: { limit: input.limit ?? 100, hasMore: false, isBoundedResult: false }, meta: historicalMetadata(this.name, input.season, seasonType, "mock.team-game-log") };
+    const playerLog = await this.getPlayerGameLog({ playerId: "mock-jordan", season: input.season, seasonType, ...(input.dateFrom ? { dateFrom: input.dateFrom } : {}), ...(input.dateTo ? { dateTo: input.dateTo } : {}), ...(input.limit ? { limit: input.limit } : {}), ...(input.cursor ? { cursor: input.cursor } : {}) });
+    return { team, season: input.season, seasonType, games: playerLog.games.map(({ player: _player, ...game }) => ({ ...game, team })), page: playerLog.page, meta: historicalMetadata(this.name, input.season, seasonType, "mock.team-game-log") };
+  }
+
+  async getLeagueLeaders(input: GetLeagueLeadersInput): Promise<LeagueLeadersResponse> { validateHistoricalInput(input.season, input.seasonType); throw new ProviderError("DATA_UNAVAILABLE", "Mock league-leader fixtures are scheduled for the league-context stage."); }
+  async getLeagueStandings(input: GetLeagueStandingsInput): Promise<LeagueStandingsResponse> { validateHistoricalInput(input.season, input.seasonType); throw new ProviderError("DATA_UNAVAILABLE", "Mock standings fixtures are scheduled for the league-context stage."); }
+  async getHistoricalGameBoxScore(gameId: string): Promise<HistoricalGameBoxScoreResponse> { throw new ProviderError("DATA_UNAVAILABLE", `Mock historical box score '${gameId}' is scheduled for the historical-games stage.`); }
+  async getHistoricalGameEvents(input: GetHistoricalGameEventsInput): Promise<HistoricalGameEventsResponse> { if (input.limit !== undefined) page([], input.limit, input.cursor); throw new ProviderError("DATA_UNAVAILABLE", `Mock historical events for '${input.gameId}' are scheduled for the historical-games stage.`); }
 
   async getCapabilities(): Promise<ProviderCapabilities> {
     return this.capabilities;

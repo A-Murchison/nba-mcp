@@ -116,6 +116,9 @@ All settings are optional. Copy `.env.example` to `.env.local` for local use, or
 NBA_MCP_PROVIDER=mock
 NBA_MCP_CACHE_TTL_LIVE_SECONDS=10
 NBA_MCP_CACHE_TTL_ROSTER_SECONDS=86400
+# Reserved for the staged historical-data release; no historical tools are exposed yet.
+NBA_MCP_CACHE_TTL_HISTORICAL_SECONDS=604800
+NBA_MCP_CACHE_TTL_HISTORICAL_LOG_SECONDS=86400
 NBA_MCP_TIMEZONE=America/New_York
 NBA_MCP_LOG_LEVEL=info
 ```

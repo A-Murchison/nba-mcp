@@ -9,8 +9,24 @@ export interface ProviderCapabilities {
   supportsCurrentRosters: boolean;
   /** Provider can return player injury/availability data. */
   supportsInjuries: boolean;
-  /** Provider can return historical stats beyond current live/current-season context. */
+  /** @deprecated Use the granular historical capability flags below. */
   supportsHistoricalStats: boolean;
+  /** Provider can return traditional player aggregates for a historical season. */
+  supportsPlayerSeasonStats: boolean;
+  /** Provider can return historical player game logs. */
+  supportsPlayerGameLogs: boolean;
+  /** Provider can return traditional team aggregates for a historical season. */
+  supportsTeamSeasonStats: boolean;
+  /** Provider can return historical team game logs. */
+  supportsTeamGameLogs: boolean;
+  /** Provider can return ranked historical league leaders. */
+  supportsLeagueLeaders: boolean;
+  /** Provider can return final historical standings. */
+  supportsHistoricalStandings: boolean;
+  /** Provider can return final historical game box scores. */
+  supportsHistoricalBoxScores: boolean;
+  /** Provider can return historical play-by-play. */
+  supportsHistoricalPlayByPlay: boolean;
   /** Expected live-data refresh cadence from the provider. */
   updateFrequencySeconds: number;
 }

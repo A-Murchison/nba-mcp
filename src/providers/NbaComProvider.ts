@@ -4,7 +4,7 @@ import type {
   Player, PlayerBoxScore, PlayByPlayEvent, RecentGameEventsResponse, ResponseMetadata, Roster,
   SearchPlayersResponse, SearchTeamsResponse, Team, TeamBoxScore, TeamRosterResponse, TodaysGamesResponse,
 } from "../domain/models.js";
-import type { DataProvider, GetGamesThisWeekInput, GetRecentGameEventsInput, GetTodaysGamesInput, SearchPlayersInput } from "./DataProvider.js";
+import type { DataProvider, GetGamesThisWeekInput, GetHistoricalGameEventsInput, GetLeagueLeadersInput, GetLeagueStandingsInput, GetPlayerGameLogInput, GetPlayerSeasonStatsInput, GetRecentGameEventsInput, GetTeamGameLogInput, GetTeamSeasonStatsInput, GetTodaysGamesInput, SearchPlayersInput } from "./DataProvider.js";
 import { ProviderError } from "./ProviderError.js";
 import { canonicalNbaTeam, nbaTeam, searchNbaTeams } from "./nbaTeams.js";
 
@@ -31,6 +31,10 @@ const STATS_HEADERS = Object.freeze({
   Accept: "application/json, text/plain, */*",
   "Cache-Control": "no-cache",
   Pragma: "no-cache",
+  // Public request-identification headers used by NBA Stats browser clients.
+  // They are not credentials and must never be replaced with cookies or tokens.
+  "x-nba-stats-origin": "stats",
+  "x-nba-stats-token": "true",
 });
 const LIVE_HEADERS = BROWSER_FETCH_HEADERS;
 const REQUEST_TIMEOUT_MS = 15_000;
@@ -127,7 +131,7 @@ export class NbaComProvider implements DataProvider {
   readonly name = "nba-com";
 
   constructor(private readonly request: typeof fetch = fetch) {}
-  readonly capabilities: ProviderCapabilities = { supportsLiveScores: true, supportsLiveBoxScores: true, supportsPlayByPlay: true, supportsCurrentRosters: true, supportsInjuries: false, supportsHistoricalStats: false, updateFrequencySeconds: 10 };
+  readonly capabilities: ProviderCapabilities = { supportsLiveScores: true, supportsLiveBoxScores: true, supportsPlayByPlay: true, supportsCurrentRosters: true, supportsInjuries: false, supportsHistoricalStats: false, supportsPlayerSeasonStats: false, supportsPlayerGameLogs: false, supportsTeamSeasonStats: false, supportsTeamGameLogs: false, supportsLeagueLeaders: false, supportsHistoricalStandings: false, supportsHistoricalBoxScores: false, supportsHistoricalPlayByPlay: false, updateFrequencySeconds: 10 };
 
   private async getJson(url: string): Promise<{ data: JsonObject; latencyMs: number }> {
     const started = Date.now();
@@ -284,6 +288,17 @@ export class NbaComProvider implements DataProvider {
       suggestedAlternatives: ["Use search_teams", "Use get_team_roster"],
     });
   }
+  private historicalUnavailable(): never {
+    throw new ProviderError("UNSUPPORTED_CAPABILITY", "Historical NBA data has not been validated for the nba.com provider.");
+  }
+  async getPlayerSeasonStats(_input: GetPlayerSeasonStatsInput) { return this.historicalUnavailable(); }
+  async getPlayerGameLog(_input: GetPlayerGameLogInput) { return this.historicalUnavailable(); }
+  async getTeamSeasonStats(_input: GetTeamSeasonStatsInput) { return this.historicalUnavailable(); }
+  async getTeamGameLog(_input: GetTeamGameLogInput) { return this.historicalUnavailable(); }
+  async getLeagueLeaders(_input: GetLeagueLeadersInput) { return this.historicalUnavailable(); }
+  async getLeagueStandings(_input: GetLeagueStandingsInput) { return this.historicalUnavailable(); }
+  async getHistoricalGameBoxScore(_gameId: string) { return this.historicalUnavailable(); }
+  async getHistoricalGameEvents(_input: GetHistoricalGameEventsInput) { return this.historicalUnavailable(); }
   async getCapabilities(): Promise<ProviderCapabilities> { return this.capabilities; }
   private currentSeason(): string { const now = new Date(); const year = now.getUTCFullYear() - (now.getUTCMonth() < 6 ? 1 : 0); return `${year}-${String((year + 1) % 100).padStart(2, "0")}`; }
 }

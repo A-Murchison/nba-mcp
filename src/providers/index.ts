@@ -22,5 +22,7 @@ export function createProvider(config: Config): DataProvider {
     liveSeconds: config.cacheTtlLiveSeconds,
     rosterSeconds: config.cacheTtlRosterSeconds,
     scheduleSeconds: SCHEDULE_CACHE_TTL_SECONDS,
+    historicalSeconds: config.cacheTtlHistoricalSeconds,
+    historicalLogSeconds: config.cacheTtlHistoricalLogSeconds,
   });
 }

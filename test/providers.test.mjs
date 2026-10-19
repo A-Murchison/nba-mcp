@@ -39,7 +39,7 @@ test("MockProvider satisfies the provider contract with normalized responses", a
 });
 
 test("CachedDataProvider returns a miss then a hit without mutating cached data", async () => {
-  const cached = new CachedDataProvider(provider, { liveSeconds: 60, rosterSeconds: 60, scheduleSeconds: 60 });
+  const cached = new CachedDataProvider(provider, { liveSeconds: 60, rosterSeconds: 60, scheduleSeconds: 60, historicalSeconds: 60, historicalLogSeconds: 60 });
   const first = await cached.getLiveGames();
   first.games[0].homeTeam.score = 999;
   const second = await cached.getLiveGames();
@@ -47,4 +47,37 @@ test("CachedDataProvider returns a miss then a hit without mutating cached data"
   assert.equal(first.meta.cacheStatus, "miss");
   assert.equal(second.meta.cacheStatus, "hit");
   assert.notEqual(second.games[0].homeTeam.score, 999);
+});
+
+test("MockProvider returns season-scoped historical aggregates and filtered logs", async () => {
+  const regular = await provider.getPlayerSeasonStats({ playerId: "mock-jordan", season: "1990-91" });
+  const playoffs = await provider.getPlayerSeasonStats({ playerId: "mock-jordan", season: "1990-91", seasonType: "Playoffs", perMode: "Totals" });
+  const log = await provider.getPlayerGameLog({ playerId: "mock-jordan", season: "1990-91", dateFrom: "1991-04-20", limit: 1 });
+  const noGames = await provider.getTeamGameLog({ teamId: "CHI", season: "1991-92" });
+
+  assertMetadata(regular);
+  assert.equal(regular.meta.season, "1990-91");
+  assert.equal(regular.meta.seasonType, "Regular Season");
+  assert.equal(regular.playerSeasonStats.stats.points, 31.5);
+  assert.equal(playoffs.playerSeasonStats.stats.points, 529);
+  assert.equal(log.games.length, 1);
+  assert.equal(log.games[0].game.date, "1991-04-21");
+  assert.deepEqual(noGames.games, []);
+  assert.equal(noGames.page.hasMore, false);
+});
+
+test("historical validation and cache keys preserve every result-changing filter", async () => {
+  await assert.rejects(
+    provider.getPlayerGameLog({ playerId: "mock-jordan", season: "1990", dateFrom: "1991-04-22", dateTo: "1991-04-21" }),
+    { code: "INVALID_ARGUMENT" },
+  );
+
+  let calls = 0;
+  const source = new MockProvider();
+  const original = source.getPlayerGameLog.bind(source);
+  source.getPlayerGameLog = async (input) => { calls += 1; return original(input); };
+  const cached = new CachedDataProvider(source, { liveSeconds: 60, rosterSeconds: 60, scheduleSeconds: 60, historicalSeconds: 60, historicalLogSeconds: 60 });
+  await cached.getPlayerGameLog({ playerId: "mock-jordan", season: "1990-91", limit: 1 });
+  await cached.getPlayerGameLog({ playerId: "mock-jordan", season: "1990-91", limit: 2 });
+  assert.equal(calls, 2);
 });
