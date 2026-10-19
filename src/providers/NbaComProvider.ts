@@ -1,24 +1,41 @@
 import type { ProviderCapabilities } from "../domain/capabilities.js";
 import type {
-  BoxScore, Game, GameBoxScoreResponse, GameStatus, GameStatusResponse, LiveGame, LiveGamesResponse,
+  BoxScore, Game, GameBoxScoreResponse, GamesThisWeekResponse, GameStatus, GameStatusResponse, LiveGame, LiveGamesResponse,
   Player, PlayerBoxScore, PlayByPlayEvent, RecentGameEventsResponse, ResponseMetadata, Roster,
   SearchPlayersResponse, SearchTeamsResponse, Team, TeamBoxScore, TeamRosterResponse, TodaysGamesResponse,
 } from "../domain/models.js";
-import type { DataProvider, GetRecentGameEventsInput, GetTodaysGamesInput, SearchPlayersInput } from "./DataProvider.js";
+import type { DataProvider, GetGamesThisWeekInput, GetRecentGameEventsInput, GetTodaysGamesInput, SearchPlayersInput } from "./DataProvider.js";
 import { ProviderError } from "./ProviderError.js";
 import { canonicalNbaTeam, nbaTeam, searchNbaTeams } from "./nbaTeams.js";
 
 type JsonObject = Record<string, unknown>;
 
 const LIVE_BASE_URL = "https://cdn.nba.com/static/json/liveData";
+const SCHEDULE_URL = "https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json";
 const STATS_BASE_URL = "https://stats.nba.com/stats";
-const NBA_HEADERS = {
-  Accept: "application/json, text/plain, */*",
+// Match the headers used by nba.com's scoreboard browser request. Node fetch manages
+// Host, compression, and transfer encoding itself, so those curl-only headers are omitted.
+const BROWSER_FETCH_HEADERS = Object.freeze({
+  Accept: "*/*",
   "Accept-Language": "en-US,en;q=0.9",
   Origin: "https://www.nba.com",
   Referer: "https://www.nba.com/",
-  "User-Agent": "Mozilla/5.0 (compatible; nba-mcp/0.1; +https://github.com)",
-};
+  "Sec-Fetch-Dest": "empty",
+  "Sec-Fetch-Mode": "cors",
+  "Sec-Fetch-Site": "same-site",
+  Priority: "u=4",
+  "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0",
+});
+const STATS_HEADERS = Object.freeze({
+  ...BROWSER_FETCH_HEADERS,
+  Accept: "application/json, text/plain, */*",
+  "Cache-Control": "no-cache",
+  Pragma: "no-cache",
+});
+const LIVE_HEADERS = BROWSER_FETCH_HEADERS;
+const REQUEST_TIMEOUT_MS = 15_000;
+const MAX_RATE_LIMIT_RETRIES = 2;
+const DEFAULT_RATE_LIMIT_RETRY_MS = 1_000;
 
 function object(value: unknown): JsonObject { return value !== null && typeof value === "object" ? value as JsonObject : {}; }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : []; }
@@ -30,13 +47,31 @@ function text(value: unknown): string | undefined {
 function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
 function requiredText(value: unknown, fallback = ""): string { return text(value) ?? fallback; }
 function requiredNumber(value: unknown, fallback = 0): number { return number(value) ?? fallback; }
+function scheduleDate(value: unknown, fallback: string): string {
+  const date = text(value);
+  const iso = /^(\d{4}-\d{2}-\d{2})/.exec(date ?? "");
+  if (iso) return iso[1]!;
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(date ?? "");
+  return us ? `${us[3]!}-${us[1]!.padStart(2, "0")}-${us[2]!.padStart(2, "0")}` : fallback;
+}
 function isLive(state: GameStatus["state"]): boolean { return state === "in_progress" || state === "halftime"; }
 function displayClock(value: string): string {
   const match = /^PT(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?$/.exec(value);
   if (!match) return value;
   return `${match[1] ?? "0"}:${Math.floor(Number(match[2] ?? 0)).toString().padStart(2, "0")}`;
 }
-
+function headersFor(url: string) {
+  const host = new URL(url).hostname;
+  if (host === "stats.nba.com") return STATS_HEADERS;
+  if (host === "cdn.nba.com") return LIVE_HEADERS;
+  return BROWSER_FETCH_HEADERS;
+}
+function retryDelayMs(value: string | null, now = Date.now()): number {
+  const seconds = Number.parseInt(value ?? "", 10);
+  if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
+  const date = Date.parse(value ?? "");
+  return Number.isFinite(date) ? Math.max(0, date - now) : DEFAULT_RATE_LIMIT_RETRY_MS;
+}
 function toStatus(raw: JsonObject): GameStatus {
   const code = requiredNumber(raw.gameStatus);
   const statusText = requiredText(raw.gameStatusText, "");
@@ -97,10 +132,14 @@ export class NbaComProvider implements DataProvider {
   private async getJson(url: string): Promise<{ data: JsonObject; latencyMs: number }> {
     const started = Date.now();
     let response: Response;
-    try {
-      response = await this.request(url, { headers: NBA_HEADERS, signal: AbortSignal.timeout(15_000) });
-    } catch (error) {
-      throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com request failed: ${error instanceof Error ? error.message : String(error)}`);
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        response = await this.request(url, { headers: headersFor(url), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+      } catch (error) {
+        throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com request failed: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      if (response.status !== 429 || attempt >= MAX_RATE_LIMIT_RETRIES) break;
+      await new Promise<void>((resolve) => setTimeout(resolve, retryDelayMs(response.headers.get("retry-after"))));
     }
 
     if (!response.ok) {
@@ -129,33 +168,69 @@ export class NbaComProvider implements DataProvider {
   }
 
   private meta(latencyMs: number, live: boolean): ResponseMetadata { return { source: this.name, lastUpdated: new Date().toISOString(), dataFreshnessSeconds: 0, isLive: live, cacheStatus: "bypass", providerLatencyMs: latencyMs }; }
-  private async scoreboard(): Promise<{ games: Game[]; latencyMs: number }> {
+  /** The CDN scoreboard is the primary source for the current NBA slate. */
+  private async todaysSchedule(): Promise<{ games: Game[]; latencyMs: number }> {
     const response = await this.getJson(`${LIVE_BASE_URL}/scoreboard/todaysScoreboard_00.json`);
     return { games: array(object(response.data.scoreboard).games).map(toGame), latencyMs: response.latencyMs };
   }
 
+  /** The CDN's season schedule is public; core-api's per-day gamecard feed blocks server requests. */
+  private async schedule(): Promise<{ gameDates: unknown[]; latencyMs: number }> {
+    const response = await this.getJson(SCHEDULE_URL);
+    return { gameDates: array(object(response.data.leagueSchedule).gameDates), latencyMs: response.latencyMs };
+  }
+
+  private gamesForDate(gameDates: unknown[], date: string): Game[] {
+    return gameDates.flatMap((value) => {
+      const gameDateEntry = object(value);
+      const scheduledDate = scheduleDate(gameDateEntry.gameDate, "");
+      if (scheduledDate !== date) return [];
+      return array(gameDateEntry.games).map((game) => toGame({ ...object(game), gameDateEst: scheduleDate(object(game).gameDateEst, scheduledDate) }));
+    });
+  }
+
   async getLiveGames(): Promise<LiveGamesResponse> {
-    const { games, latencyMs } = await this.scoreboard();
+    const { games, latencyMs } = await this.todaysSchedule();
     const live = games.filter((game): game is LiveGame => isLive(game.status.state) && game.homeTeam.score !== undefined && game.awayTeam.score !== undefined);
     return { games: live, meta: this.meta(latencyMs, true) };
   }
 
   async getTodaysGames(input: GetTodaysGamesInput = {}): Promise<TodaysGamesResponse> {
-    const { games, latencyMs } = await this.scoreboard();
-    const date = input.date ?? new Intl.DateTimeFormat("en-CA", { timeZone: input.timezone ?? "America/New_York" }).format(new Date());
-    // The live endpoint only supplies today's US slate; don't silently claim it supports arbitrary dates.
-    if (input.date && games.length > 0 && !games.some((game) => game.date === input.date)) {
-      throw new ProviderError("DATA_UNAVAILABLE", "nba.com live scoreboard only supports the current day's schedule.", {
-        suggestedAlternatives: ["Omit date to retrieve today's games"],
-      });
-    }
-    return { date, timezone: input.timezone ?? "America/New_York", games, meta: this.meta(latencyMs, games.some((game) => isLive(game.status.state))) };
+    const timezone = input.timezone ?? "America/New_York";
+    const date = input.date ?? new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+    const currentDate = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+    // The live CDN feed only exposes today. The CDN season schedule serves other dates.
+    const result = date === currentDate
+      ? await this.todaysSchedule()
+      : await this.schedule().then((schedule) => ({ games: this.gamesForDate(schedule.gameDates, date), latencyMs: schedule.latencyMs }));
+    return { date, timezone, games: result.games, meta: this.meta(result.latencyMs, result.games.some((game) => isLive(game.status.state))) };
+  }
+
+  async getGamesThisWeek(input: GetGamesThisWeekInput = {}): Promise<GamesThisWeekResponse> {
+    const timezone = input.timezone ?? "America/New_York";
+    const anchorDate = input.date ?? new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+    const anchor = new Date(`${anchorDate}T12:00:00Z`);
+    if (Number.isNaN(anchor.getTime())) throw new ProviderError("DATA_UNAVAILABLE", `Invalid NBA schedule date '${anchorDate}'.`);
+    const daysSinceMonday = (anchor.getUTCDay() + 6) % 7;
+    anchor.setUTCDate(anchor.getUTCDate() - daysSinceMonday);
+    const dates = Array.from({ length: 7 }, (_, index) => {
+      const day = new Date(anchor);
+      day.setUTCDate(anchor.getUTCDate() + index);
+      return day.toISOString().slice(0, 10);
+    });
+    const schedule = await this.schedule();
+    const games = dates.flatMap((date) => this.gamesForDate(schedule.gameDates, date));
+    const latencyMs = schedule.latencyMs;
+    return {
+      startDate: dates[0]!, endDate: dates[6]!, timezone, games,
+      meta: this.meta(latencyMs, games.some((game) => isLive(game.status.state))),
+    };
   }
 
   async getGameStatus(gameId: string): Promise<GameStatusResponse> {
-    const { games, latencyMs } = await this.scoreboard();
+    const { games, latencyMs } = await this.todaysSchedule();
     const game = games.find((candidate) => candidate.gameId === gameId);
-    if (!game) throw new ProviderError("NOT_FOUND", `Game '${gameId}' was not found on today's nba.com scoreboard.`);
+    if (!game) throw new ProviderError("NOT_FOUND", `Game '${gameId}' was not found on today's nba.com schedule.`);
     return { game, meta: this.meta(latencyMs, isLive(game.status.state)) };
   }
 

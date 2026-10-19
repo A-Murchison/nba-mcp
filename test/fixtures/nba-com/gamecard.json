@@ -1,0 +1,22 @@
+{
+  "leagueSchedule": {
+    "gameDates": [
+      {
+        "gameDate": "2026-10-20",
+        "games": [
+          {
+            "gameId": "0022500001",
+            "gameStatus": 2,
+            "gameStatusText": "Halftime",
+            "period": 2,
+            "gameClock": "PT00M00.00S",
+            "gameTimeUTC": "2026-10-20T23:30:00Z",
+            "homeTeam": { "teamId": 1610612738, "teamTricode": "BOS", "teamCity": "Boston", "teamName": "Celtics", "score": 0 },
+            "awayTeam": { "teamId": 1610612747, "teamTricode": "LAL", "teamCity": "Los Angeles", "teamName": "Lakers", "score": 0 },
+            "arena": { "arenaName": "TD Garden" }
+          }
+        ]
+      }
+    ]
+  }
+}

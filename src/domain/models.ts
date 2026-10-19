@@ -157,6 +157,14 @@ export interface TodaysGamesResponse extends WithMetadata {
   games: Game[];
 }
 
+export interface GamesThisWeekResponse extends WithMetadata {
+  /** Inclusive Monday-through-Sunday range in the requested timezone. */
+  startDate: ISODateString;
+  endDate: ISODateString;
+  timezone: string;
+  games: Game[];
+}
+
 export interface GameStatusResponse extends WithMetadata {
   game: Game;
 }

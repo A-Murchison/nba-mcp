@@ -19,6 +19,7 @@ export const TOOL_NAMES = [
   "get_server_capabilities",
   "get_live_games",
   "get_todays_games",
+  "get_games_this_week",
   "get_game_status",
   "get_game_box_score",
   "get_recent_game_events",

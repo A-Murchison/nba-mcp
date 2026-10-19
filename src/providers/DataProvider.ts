@@ -1,6 +1,7 @@
 import type { ProviderCapabilities } from "../domain/capabilities.js";
 import type {
   GameBoxScoreResponse,
+  GamesThisWeekResponse,
   GameStatusResponse,
   LiveGamesResponse,
   RecentGameEventsResponse,
@@ -12,6 +13,13 @@ import type {
 
 export interface GetTodaysGamesInput {
   /** YYYY-MM-DD. Defaults to the server's configured local date when omitted. */
+  date?: string;
+  /** IANA timezone, for example America/New_York. */
+  timezone?: string;
+}
+
+export interface GetGamesThisWeekInput {
+  /** Any YYYY-MM-DD date in the requested Monday-through-Sunday week. */
   date?: string;
   /** IANA timezone, for example America/New_York. */
   timezone?: string;
@@ -40,6 +48,7 @@ export interface DataProvider {
 
   getLiveGames(): Promise<LiveGamesResponse>;
   getTodaysGames(input?: GetTodaysGamesInput): Promise<TodaysGamesResponse>;
+  getGamesThisWeek(input?: GetGamesThisWeekInput): Promise<GamesThisWeekResponse>;
   getGameStatus(gameId: string): Promise<GameStatusResponse>;
   getGameBoxScore(gameId: string): Promise<GameBoxScoreResponse>;
   getRecentGameEvents(input: GetRecentGameEventsInput): Promise<RecentGameEventsResponse>;

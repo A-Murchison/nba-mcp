@@ -3,6 +3,7 @@ import type {
   BoxScore,
   Game,
   GameBoxScoreResponse,
+  GamesThisWeekResponse,
   GameStatusResponse,
   LiveGame,
   LiveGamesResponse,
@@ -18,6 +19,7 @@ import type {
 } from "../../domain/models.js";
 import type {
   DataProvider,
+  GetGamesThisWeekInput,
   GetRecentGameEventsInput,
   GetTodaysGamesInput,
   SearchPlayersInput,
@@ -181,6 +183,17 @@ export class MockProvider implements DataProvider {
       games: [liveGame, scheduledGame, finalGame],
       meta: metadata(this.name, true),
     };
+  }
+
+  async getGamesThisWeek(input: GetGamesThisWeekInput = {}): Promise<GamesThisWeekResponse> {
+    const timezone = input.timezone ?? "America/New_York";
+    const anchorDate = input.date ?? liveGame.date;
+    const anchor = new Date(`${anchorDate}T12:00:00Z`);
+    const daysSinceMonday = (anchor.getUTCDay() + 6) % 7;
+    anchor.setUTCDate(anchor.getUTCDate() - daysSinceMonday);
+    const startDate = anchor.toISOString().slice(0, 10);
+    anchor.setUTCDate(anchor.getUTCDate() + 6);
+    return { startDate, endDate: anchor.toISOString().slice(0, 10), timezone, games: [liveGame, scheduledGame, finalGame], meta: metadata(this.name, true) };
   }
 
   async getGameStatus(gameId: string): Promise<GameStatusResponse> {

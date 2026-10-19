@@ -9,6 +9,7 @@ Ask your MCP client questions such as:
 - “Who is leading this game in points?”
 - “What happened most recently?”
 - “Who is on the Boston Celtics roster?”
+- “What NBA games are on this week?”
 
 ## Quick start
 
@@ -62,6 +63,21 @@ This server communicates over standard input/output (stdio), not a web URL. Repl
 
 Restart your client, then ask it: **“What NBA games are live right now?”** For more client setup and troubleshooting, see [MCP client configuration](docs/client-configuration.md).
 
+## Version and update verification
+
+`package.json` is the single source of truth for the server version. To set a new version, update its `version` field, rebuild, and restart the MCP client so it starts the new server process:
+
+```bash
+# Set the desired semantic version in package.json, then:
+bun run build
+```
+
+After the client reconnects, call `get_server_capabilities`. Its `version` value must match `package.json`; this confirms that the client is connected to the rebuilt version rather than an older running process. You can also confirm the package value locally with:
+
+```bash
+bun -e 'console.log(require("./package.json").version)'
+```
+
 ## Choose a data provider
 
 Set `NBA_MCP_PROVIDER` in your client configuration or environment.
@@ -71,7 +87,7 @@ Set `NBA_MCP_PROVIDER` in your client configuration or environment.
 | `mock` (default) | Trying the server, development, and tests | Reliable, deterministic sample data; no account or API key needed. |
 | `nba-com` | Current NBA information | Public nba.com live data; no API key needed. Availability can be affected by rate limits, automated-traffic blocking, or upstream changes. |
 
-With `nba-com`, current-day games, game status, box scores, play-by-play, and rosters are supported. Team search covers all 30 NBA teams. Historical dates and player-directory search are not available from this provider.
+With `nba-com`, current and upcoming schedules, game status, box scores, play-by-play, and rosters are supported. Team search covers all 30 NBA teams. Player-directory search is not available from this provider. Current-day schedules, live-game discovery, and game status use NBA's CDN live scoreboard (`https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`) first. Explicit dates and weekly schedules use the public CDN season schedule (`https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json`), avoiding the automated-traffic restrictions imposed by the `core-api.nba.com` gamecard feed. Box scores and play-by-play use live-data endpoints. The provider uses browser-compatible request headers for NBA CDN requests and retries a rate-limited request after the upstream's requested delay; upstream availability and the schedule's current-season coverage can still change.
 
 > This project is not affiliated with, endorsed by, or sponsored by the NBA. You are responsible for complying with your data provider’s terms.
 
@@ -81,6 +97,7 @@ With `nba-com`, current-day games, game status, box scores, play-by-play, and ro
 | --- | --- |
 | `get_live_games` | Games currently in progress |
 | `get_todays_games` | Scheduled, live, and final games for a date and timezone |
+| `get_games_this_week` | The Monday-through-Sunday schedule for this week or a requested week |
 | `get_game_status` | Score, period, and clock for one game |
 | `get_game_box_score` | Team totals and player statistics |
 | `get_recent_game_events` | Recent play-by-play events |

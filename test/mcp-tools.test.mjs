@@ -50,6 +50,7 @@ test("all MCP tools expose the normalized mock-provider response contract", asyn
     [
       "get_game_box_score",
       "get_game_status",
+      "get_games_this_week",
       "get_live_games",
       "get_recent_game_events",
       "get_server_capabilities",
@@ -76,6 +77,14 @@ test("all MCP tools expose the normalized mock-provider response contract", asyn
   }));
   assert.equal(todays.games.length, 3);
   assert.equal(todays.games[1].status.state, "scheduled");
+
+  const weekly = structured(await connection.client.callTool({
+    name: "get_games_this_week",
+    arguments: { date: "2026-01-12", timezone: "America/New_York" },
+  }));
+  assert.equal(weekly.startDate, "2026-01-12");
+  assert.equal(weekly.endDate, "2026-01-18");
+  assert.equal(weekly.games.length, 3);
 
   const status = structured(await connection.client.callTool({
     name: "get_game_status",

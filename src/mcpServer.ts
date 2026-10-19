@@ -1,3 +1,5 @@
+import { createRequire } from "node:module";
+
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
@@ -10,7 +12,8 @@ import { createProvider } from "./providers/index.js";
 import { ProviderError } from "./providers/ProviderError.js";
 
 const SERVER_NAME = "nba-mcp";
-const SERVER_VERSION = "0.1.0";
+const require = createRequire(import.meta.url);
+const { version: SERVER_VERSION } = require("../package.json") as { version: string };
 
 function toolResult(data: Record<string, unknown>, isError = false): CallToolResult {
   return {
@@ -62,7 +65,7 @@ export async function buildServerCapabilities(provider: DataProvider): Promise<S
     liveUpdateFrequencySeconds: providerCapabilities.updateFrequencySeconds,
     knownLimitations: [
       "The nba.com adapter depends on public upstream endpoints and may be blocked, rate-limited, or changed without notice.",
-      "nba.com schedule lookups are limited to its current-day live scoreboard; player search is unavailable with that provider.",
+      "nba.com schedule lookups use the public gamecard feed for current and upcoming dates; player search is unavailable with that provider.",
       "Betting, odds, fantasy projections, shot charts, and historical analytics are unavailable.",
       "Live freshness depends on the active provider; live responses are cached only for the configured short TTL.",
     ],
@@ -104,6 +107,25 @@ export function createNbaMcpServer(config: Config): McpServer {
     async ({ date, timezone }) =>
       handleTool(provider, () =>
         provider.getTodaysGames({
+          ...(date ? { date } : {}),
+          timezone: timezone ?? config.timezone,
+        }),
+      ),
+  );
+
+  server.registerTool(
+    "get_games_this_week",
+    {
+      title: "Get this week's NBA games",
+      description: "Return the NBA schedule for the Monday-through-Sunday week containing the requested date. Use this for questions such as 'What games are on this week?'.",
+      inputSchema: {
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Any date in the requested week, in YYYY-MM-DD format. Defaults to today in the configured timezone."),
+        timezone: z.string().min(1).optional().describe("IANA timezone such as America/New_York. Defaults to NBA_MCP_TIMEZONE."),
+      },
+    },
+    async ({ date, timezone }) =>
+      handleTool(provider, () =>
+        provider.getGamesThisWeek({
           ...(date ? { date } : {}),
           timezone: timezone ?? config.timezone,
         }),

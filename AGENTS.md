@@ -15,3 +15,27 @@ Guidance for coding agents working in this repository:
 - Handle errors thoughtfully and avoid hiding failures.
 - Do not commit secrets, credentials, local machine paths, generated noise, or large unnecessary files.
 - Before finishing, summarize what changed, how it was validated, and any remaining follow-up work.
+
+## NBA.com request headers
+
+NBA CDN endpoints require browser-compatible headers. Keep these headers in `src/providers/NbaComProvider.ts` and apply them to requests for `cdn.nba.com`, including:
+
+- Live scoreboard: `/static/json/liveData/scoreboard/todaysScoreboard_00.json`
+- Live box score and play-by-play endpoints under `/static/json/liveData/`
+- Season schedule: `/static/json/staticData/scheduleLeagueV2_1.json`
+
+Use the following header values (do not add cookies or other credentials):
+
+```text
+Accept: */*
+Accept-Language: en-US,en;q=0.9
+Origin: https://www.nba.com
+Referer: https://www.nba.com/
+Sec-Fetch-Dest: empty
+Sec-Fetch-Mode: cors
+Sec-Fetch-Site: same-site
+Priority: u=4
+User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0
+```
+
+Node's fetch implementation manages `Host`, compression, and transfer-encoding headers; do not set them manually. `stats.nba.com` may use its endpoint-specific JSON/cache-control headers in addition to the browser headers. Do not use the blocked `core-api.nba.com` gamecard feed for schedule lookups; use the CDN season schedule instead.

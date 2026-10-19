@@ -1,6 +1,7 @@
 import type { WithMetadata } from "../domain/models.js";
 import type {
   DataProvider,
+  GetGamesThisWeekInput,
   GetRecentGameEventsInput,
   GetTodaysGamesInput,
   SearchPlayersInput,
@@ -58,6 +59,14 @@ export class CachedDataProvider implements DataProvider {
       `todays-games:${input.date ?? "default"}:${input.timezone ?? "default"}`,
       this.ttls.scheduleSeconds,
       () => this.provider.getTodaysGames(input),
+    );
+  }
+
+  getGamesThisWeek(input: GetGamesThisWeekInput = {}) {
+    return this.getOrLoad(
+      `games-this-week:${input.date ?? "default"}:${input.timezone ?? "default"}`,
+      this.ttls.scheduleSeconds,
+      () => this.provider.getGamesThisWeek(input),
     );
   }
 
