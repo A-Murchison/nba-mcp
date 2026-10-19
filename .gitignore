@@ -7,3 +7,4 @@ dist/
 npm-debug.log*
 PLAN.md
 nba-mcp-server-design.md
+.pi/mcp.json

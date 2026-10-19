@@ -40,7 +40,7 @@ function structured(result) {
   return result.structuredContent;
 }
 
-test("all v0.1 MCP tools expose the normalized mock-provider response contract", async (t) => {
+test("all MCP tools expose the normalized mock-provider response contract", async (t) => {
   const connection = await createClient();
   t.after(() => connection.close());
 

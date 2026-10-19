@@ -3,7 +3,7 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import * as z from "zod/v4";
 
 import type { Config } from "./config.js";
-import { V01_TOOL_NAMES, type ServerCapabilities } from "./domain/capabilities.js";
+import { TOOL_NAMES, type ServerCapabilities } from "./domain/capabilities.js";
 import { errorResponse, type ErrorResponse } from "./domain/errors.js";
 import type { DataProvider } from "./providers/DataProvider.js";
 import { createProvider } from "./providers/index.js";
@@ -57,13 +57,13 @@ export async function buildServerCapabilities(provider: DataProvider): Promise<S
     serverName: SERVER_NAME,
     version: SERVER_VERSION,
     activeProvider: provider.name,
-    supportedTools: V01_TOOL_NAMES,
+    supportedTools: TOOL_NAMES,
     providerCapabilities,
     liveUpdateFrequencySeconds: providerCapabilities.updateFrequencySeconds,
     knownLimitations: [
       "The nba.com adapter depends on public upstream endpoints and may be blocked, rate-limited, or changed without notice.",
       "nba.com schedule lookups are limited to its current-day live scoreboard; player search is unavailable with that provider.",
-      "Betting, odds, fantasy projections, shot charts, and historical analytics are out of v0.1 scope.",
+      "Betting, odds, fantasy projections, shot charts, and historical analytics are unavailable.",
       "Live freshness depends on the active provider; live responses are cached only for the configured short TTL.",
     ],
   };

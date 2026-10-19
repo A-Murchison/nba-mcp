@@ -3,8 +3,8 @@
 Build the server before adding it to a client:
 
 ```bash
-npm install
-npm run build
+bun install
+bun run build
 ```
 
 Use an absolute path for `dist/index.js`. The process communicates exclusively over standard input/output, so do not configure a URL or port.
@@ -17,7 +17,7 @@ Open Claude Desktop's developer settings and edit its MCP configuration file. Ad
 {
   "mcpServers": {
     "nba-mcp": {
-      "command": "node",
+      "command": "bun",
       "args": ["/absolute/path/to/nba-mcp/dist/index.js"],
       "env": {
         "NBA_MCP_PROVIDER": "mock"
@@ -38,7 +38,7 @@ Create `.vscode/mcp.json` in the workspace (or use the **MCP: Open User Configur
   "servers": {
     "nba-mcp": {
       "type": "stdio",
-      "command": "node",
+      "command": "bun",
       "args": ["/absolute/path/to/nba-mcp/dist/index.js"],
       "env": {
         "NBA_MCP_PROVIDER": "mock"
@@ -54,4 +54,4 @@ Start or restart the server from VS Code's MCP view after changing the configura
 
 Ask the connected client to call `get_server_capabilities`. With the configuration above, its `activeProvider` should be `mock`. Then try `get_live_games` or ask: “What NBA games are live right now?”
 
-If the client cannot start the server, confirm that `node` is available to the desktop application's environment and that the path in `args` is absolute. Run `node /absolute/path/to/nba-mcp/dist/index.js` from a terminal to confirm the process starts without an immediate error.
+If the client cannot start the server, confirm that `bun` is available to the desktop application's environment and that the path in `args` is absolute. Run `bun /absolute/path/to/nba-mcp/dist/index.js` from a terminal to confirm the process starts without an immediate error.

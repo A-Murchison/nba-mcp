@@ -2,6 +2,8 @@
 
 Guidance for coding agents working in this repository:
 
+- Keep changes focused and consistent with the existing codebase.
+- Do not commit secrets, credentials, local paths, generated files, or other unnecessary artifacts.
 - Act like a professional developer: understand the task, inspect the existing code and docs, and make the smallest clean change that solves the problem.
 - Prefer clear, maintainable implementations over clever shortcuts. Follow existing project style and conventions.
 - Keep changes focused. Avoid unrelated refactors, formatting churn, or speculative features.

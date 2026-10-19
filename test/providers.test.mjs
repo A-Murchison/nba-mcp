@@ -13,7 +13,7 @@ function assertMetadata(response) {
   assert.ok(["bypass", "hit", "miss", "stale"].includes(response.meta.cacheStatus));
 }
 
-test("MockProvider satisfies the v0.1 provider contract with normalized responses", async () => {
+test("MockProvider satisfies the provider contract with normalized responses", async () => {
   const live = await provider.getLiveGames();
   assertMetadata(live);
   assert.ok(live.games.length > 0);

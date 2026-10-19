@@ -1,120 +1,121 @@
 # nba-mcp
 
-A live-first, provider-agnostic NBA stats MCP server.
+An [MCP](https://modelcontextprotocol.io/) server that gives AI assistants NBA scores, live game updates, box scores, rosters, and team/player search.
 
-The goal is to help AI clients answer questions like:
+Ask your MCP client questions such as:
 
-- What NBA games are live right now?
-- What is the score of a specific game?
-- Who is leading a live game in points, rebounds, or assists?
-- What just happened in a game?
-- Who is on a team's current roster?
-- Which players or teams match this query?
+- “What NBA games are live right now?”
+- “What is the score of the Lakers game?”
+- “Who is leading this game in points?”
+- “What happened most recently?”
+- “Who is on the Boston Celtics roster?”
 
-## Status
+## Quick start
 
-The stdio MCP server registers all v0.1 tools, routes them through a provider abstraction, and applies an in-memory cache with request coalescing. The mock provider is the default, so the server works without API keys. A real `nba-com` adapter is also available for public nba.com live endpoints.
+### 1. Install and build
 
-The foundations include a TypeScript scaffold, provider contract, capability model, canonical live data models, freshness metadata, structured error types, normalized mock responses, configuration, and a live nba.com adapter.
+You need [Bun](https://bun.sh/) 1.4.3 or later.
 
-## v0.1 tool scope
-
-Included in v0.1:
-
-- `get_server_capabilities`
-- `get_live_games`
-- `get_todays_games`
-- `get_game_status`
-- `get_game_box_score`
-- `get_recent_game_events`
-- `get_team_roster`
-- `search_teams`
-- `search_players`
-
-Deferred until later:
-
-- Historical box scores
-- Long-term player game logs
-- Advanced analytics
-- Betting/odds
-- Fantasy projections
-- Shot charts
-- Heavy recap generation
-
-## Architecture
-
-```text
-MCP tools
-  -> domain services
-  -> DataProvider interface
-      -> MockProvider
-      -> NbaComProvider
-  -> canonical models
-  -> cache/freshness metadata
+```bash
+git clone <repository-url>
+cd nba-mcp
+bun install
+bun run build
 ```
 
-Providers must declare capabilities so the server can clearly report unavailable data instead of guessing. Provider methods return canonical internal models with `meta` freshness data instead of raw upstream payloads.
+### 2. Add it to your MCP client
 
-## Caching
+This server communicates over standard input/output (stdio), not a web URL. Replace `/absolute/path/to/nba-mcp` below with the full path to this folder.
 
-The server caches responses in memory and coalesces concurrent identical requests so only one provider call is made. Live games, game status, box scores, and recent events use `NBA_MCP_CACHE_TTL_LIVE_SECONDS`. Rosters and team/player search use `NBA_MCP_CACHE_TTL_ROSTER_SECONDS`; today's schedule uses a fixed 60-second TTL. Responses set `meta.cacheStatus` to `miss` when fetched from a provider and `hit` when served from the cache. Cache contents are process-local and cleared when the server restarts.
+**Claude Desktop** — add this to its MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "nba-mcp": {
+      "command": "bun",
+      "args": ["/absolute/path/to/nba-mcp/dist/index.js"],
+      "env": {
+        "NBA_MCP_PROVIDER": "mock"
+      }
+    }
+  }
+}
+```
+
+**Visual Studio Code** — create `.vscode/mcp.json` (or use **MCP: Open User Configuration**):
+
+```json
+{
+  "servers": {
+    "nba-mcp": {
+      "type": "stdio",
+      "command": "bun",
+      "args": ["/absolute/path/to/nba-mcp/dist/index.js"],
+      "env": {
+        "NBA_MCP_PROVIDER": "mock"
+      }
+    }
+  }
+}
+```
+
+Restart your client, then ask it: **“What NBA games are live right now?”** For more client setup and troubleshooting, see [MCP client configuration](docs/client-configuration.md).
+
+## Choose a data provider
+
+Set `NBA_MCP_PROVIDER` in your client configuration or environment.
+
+| Provider | Best for | What to expect |
+| --- | --- | --- |
+| `mock` (default) | Trying the server, development, and tests | Reliable, deterministic sample data; no account or API key needed. |
+| `nba-com` | Current NBA information | Public nba.com live data; no API key needed. Availability can be affected by rate limits, automated-traffic blocking, or upstream changes. |
+
+With `nba-com`, current-day games, game status, box scores, play-by-play, and rosters are supported. Team search covers all 30 NBA teams. Historical dates and player-directory search are not available from this provider.
+
+> This project is not affiliated with, endorsed by, or sponsored by the NBA. You are responsible for complying with your data provider’s terms.
+
+## What your assistant can do
+
+| Tool | Use it for |
+| --- | --- |
+| `get_live_games` | Games currently in progress |
+| `get_todays_games` | Scheduled, live, and final games for a date and timezone |
+| `get_game_status` | Score, period, and clock for one game |
+| `get_game_box_score` | Team totals and player statistics |
+| `get_recent_game_events` | Recent play-by-play events |
+| `get_team_roster` | A team’s current roster |
+| `search_teams` | Find a team ID from a name, city, or abbreviation |
+| `search_players` | Find active players by name |
+| `get_server_capabilities` | Check the active provider, supported tools, and limitations |
+
+Live responses include freshness information. Results are cached in memory briefly to reduce repeated requests; restarting the server clears that cache.
 
 ## Configuration
 
-Copy `.env.example` to `.env.local` and adjust as needed. The server loads `.env.local` automatically; explicit environment variables supplied by an MCP client take precedence:
+All settings are optional. Copy `.env.example` to `.env.local` for local use, or provide them through your MCP client. Client-supplied environment variables take precedence.
 
 ```text
-# Use mock for deterministic local development, or nba-com for public live endpoints.
 NBA_MCP_PROVIDER=mock
-NBA_MCP_API_KEY=
 NBA_MCP_CACHE_TTL_LIVE_SECONDS=10
 NBA_MCP_CACHE_TTL_ROSTER_SECONDS=86400
 NBA_MCP_TIMEZONE=America/New_York
 NBA_MCP_LOG_LEVEL=info
 ```
 
-### Provider behavior
+`NBA_MCP_TIMEZONE` accepts an IANA timezone such as `Europe/London`, `Asia/Tokyo`, or `America/New_York`. Use it when asking for a day’s schedule so “today” matches your location.
 
-`mock` is deterministic and supports every v0.1 tool. It is the recommended provider for development and CI.
-
-`nba-com` uses public nba.com live JSON for the current-day scoreboard, game status, box score, and play-by-play, plus the nba.com roster endpoint. It does not require `NBA_MCP_API_KEY`. `search_teams` uses the built-in directory of all 30 NBA teams, so it can resolve a team even when it is not on today's slate. nba.com may block automated traffic, rate-limit requests, or change its undocumented response formats. This adapter intentionally supports only the current-day scoreboard: an arbitrary historical `date` is not available. Its player-directory search is currently unavailable; use `get_team_roster` after resolving a team instead.
-
-## Development
+## Run locally
 
 ```bash
-npm install
-npm run typecheck
-npm test
-npm run build
-npm start
+bun run dev       # start from TypeScript and watch for changes
+bun start         # run the built server
+bun run typecheck # check types
+bun run test      # build and run tests
 ```
 
-`npm start` launches the MCP server over stdio. For local development without building first, use:
+When running directly, the server uses stdio. It will appear to wait for input in a terminal; connect it through an MCP client rather than opening it in a browser.
 
-```bash
-npm run dev
-```
+## Current limits
 
-See [MCP client configuration](docs/client-configuration.md) for Claude Desktop and Visual Studio Code setup instructions. Both examples use the deterministic mock provider and include connection verification steps.
-
-## Tools
-
-- `get_server_capabilities` — server version, active provider, supported tools, provider capabilities, update frequency, and limitations
-- `get_live_games` — currently live games with score/status/freshness metadata
-- `get_todays_games` — scheduled, live, and final games for a date/timezone
-- `get_game_status` — lightweight status for a single game
-- `get_game_box_score` — team totals and player box score stats
-- `get_recent_game_events` — recent play-by-play events when provider-supported
-- `get_team_roster` — current roster for a team
-- `search_teams` — resolve team names/cities/abbreviations to canonical team IDs
-- `search_players` — resolve current players by name
-
-## Errors
-
-Tool failures are returned as MCP error results with a structured JSON envelope. Expected provider failures use stable codes such as `NOT_FOUND`, `DATA_UNAVAILABLE`, `PROVIDER_UNAVAILABLE`, and `PROVIDER_RATE_LIMITED`; callers can use the message and any suggested alternatives to recover. Invalid tool arguments are rejected by the MCP schema before the tool runs.
-
-## Legal/provider disclaimer
-
-This project is not affiliated with, endorsed by, or sponsored by the NBA.
-
-Users are responsible for complying with the terms of their configured data provider. This repository should not include proprietary live data dumps or large unlicensed historical datasets.
+This server focuses on current and live NBA information. It does not provide historical box scores, long-term player game logs, advanced analytics, shot charts, or generated game recaps.

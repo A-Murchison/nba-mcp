@@ -7,15 +7,15 @@ export interface ProviderCapabilities {
   supportsPlayByPlay: boolean;
   /** Provider can return current team roster data. */
   supportsCurrentRosters: boolean;
-  /** Provider can return player injury/availability data. Not in v0.1 scope. */
+  /** Provider can return player injury/availability data. */
   supportsInjuries: boolean;
-  /** Provider can return historical stats beyond current live/current-season context. Not in v0.1 scope. */
+  /** Provider can return historical stats beyond current live/current-season context. */
   supportsHistoricalStats: boolean;
   /** Expected live-data refresh cadence from the provider. */
   updateFrequencySeconds: number;
 }
 
-export const V01_TOOL_NAMES = [
+export const TOOL_NAMES = [
   "get_server_capabilities",
   "get_live_games",
   "get_todays_games",
@@ -27,13 +27,13 @@ export const V01_TOOL_NAMES = [
   "search_players",
 ] as const;
 
-export type V01ToolName = (typeof V01_TOOL_NAMES)[number];
+export type ToolName = (typeof TOOL_NAMES)[number];
 
 export interface ServerCapabilities {
   serverName: "nba-mcp";
   version: string;
   activeProvider: string;
-  supportedTools: readonly V01ToolName[];
+  supportedTools: readonly ToolName[];
   providerCapabilities: ProviderCapabilities;
   liveUpdateFrequencySeconds: number;
   knownLimitations: string[];
