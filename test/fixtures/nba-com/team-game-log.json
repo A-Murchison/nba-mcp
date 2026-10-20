@@ -1,0 +1,12 @@
+{
+  "resultSets": [
+    {
+      "name": "TeamGameLog",
+      "headers": ["Team_ID", "Game_ID", "GAME_DATE", "MATCHUP", "WL", "MIN", "FGM", "FGA", "FG3M", "FG3A", "FTM", "FTA", "OREB", "DREB", "REB", "AST", "TOV", "STL", "BLK", "PF", "PTS"],
+      "rowSet": [
+        [1610612747, "0022300642", "JAN 17, 2024", "LAL vs. DAL", "W", 48, 48, 91, 14, 34, 21, 27, 8, 34, 42, 30, 12, 8, 4, 17, 127],
+        [1610612747, "0022300619", "JAN 15, 2024", "LAL @ UTA", "L", 48, 43, 89, 12, 36, 17, 23, 10, 29, 39, 26, 15, 6, 3, 21, 125]
+      ]
+    }
+  ]
+}

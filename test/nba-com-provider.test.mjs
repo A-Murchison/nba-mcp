@@ -7,7 +7,7 @@ import { ProviderError } from "../dist/providers/ProviderError.js";
 
 const fixtureDirectory = new URL("./fixtures/nba-com/", import.meta.url);
 const fixtures = Object.fromEntries(await Promise.all(
-  ["scoreboard", "gamecard", "boxscore", "playbyplay", "roster"].map(async (name) => [
+  ["scoreboard", "gamecard", "boxscore", "playbyplay", "roster", "player-dashboard", "player-game-log", "player-info", "team-dashboard", "team-game-log", "league-leaders"].map(async (name) => [
     name,
     await readFile(new URL(`${name}.json`, fixtureDirectory), "utf8"),
   ]),
@@ -20,6 +20,12 @@ function fixtureFetch(input) {
     : url.includes("boxscore_") ? fixtures.boxscore
     : url.includes("playbyplay_") ? fixtures.playbyplay
     : url.includes("commonteamroster") ? fixtures.roster
+    : url.includes("playerdashboardbygeneralsplits") ? fixtures["player-dashboard"]
+    : url.includes("playergamelog") ? fixtures["player-game-log"]
+    : url.includes("commonplayerinfo") ? fixtures["player-info"]
+    : url.includes("teamdashboardbygeneralsplits") ? fixtures["team-dashboard"]
+    : url.includes("teamgamelog") ? fixtures["team-game-log"]
+    : url.includes("leagueleaders") ? fixtures["league-leaders"]
     : undefined;
   return Promise.resolve(new Response(fixture ?? "not found", { status: fixture ? 200 : 404 }));
 }
@@ -36,7 +42,8 @@ test("NbaComProvider uses the CDN scoreboard for fixture-backed live games and s
   assert.equal(live.games[0].status.clock, "00:00");
   assert.equal(live.games[0].homeTeam.id, "1610612738");
 
-  const todays = await nba.getTodaysGames({ date: "2026-10-20", timezone: "America/New_York" });
+  // Use a timezone whose local date differs from the fixture date when this test runs on 2026-10-20.
+  const todays = await nba.getTodaysGames({ date: "2026-10-20", timezone: "America/Adak" });
   assert.equal(todays.date, "2026-10-20");
   assert.equal(todays.games.length, 1);
   assert.equal(todays.games[0].date, "2026-10-20");
@@ -120,7 +127,7 @@ test("NbaComProvider uses CDN browser headers and retries rate-limited schedule 
   const nba = new NbaComProvider(request);
 
   await nba.getLiveGames();
-  await nba.getTodaysGames({ date: "2026-10-20" });
+  await nba.getTodaysGames({ date: "2026-10-20", timezone: "America/Adak" });
   await nba.getTeamRoster("BOS");
   await nba.getGamesThisWeek({ date: "2026-10-20" });
 
@@ -135,6 +142,201 @@ test("NbaComProvider uses CDN browser headers and retries rate-limited schedule 
   assert.equal(statsHeaders.Origin, "https://www.nba.com");
   assert.equal(statsHeaders["x-nba-stats-origin"], "stats");
   assert.equal(statsHeaders["x-nba-stats-token"], "true");
+});
+
+test("NbaComProvider normalizes historical player season stats with NBA Stats headers", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+
+  const response = await nba.getPlayerSeasonStats({ playerId: "2544", season: "2023-24" });
+  assert.equal(response.playerSeasonStats.player.fullName, "LeBron James");
+  assert.equal(response.playerSeasonStats.player.teamId, "1610612747");
+  assert.deepEqual(response.playerSeasonStats.stats, {
+    gamesPlayed: 71, wins: 47, losses: 24, minutes: 35.3, points: 1822,
+    rebounds: 515, offensiveRebounds: 56, defensiveRebounds: 459, assists: 574,
+    steals: 89, blocks: 38, turnovers: 247, fouls: 78, fieldGoalsMade: 650,
+    fieldGoalsAttempted: 1210, threePointersMade: 149, threePointersAttempted: 425,
+    freeThrowsMade: 303, freeThrowsAttempted: 404,
+  });
+  assert.equal(response.meta.dataset, "stats.nba.com/playerdashboardbygeneralsplits");
+  assert.equal(response.meta.seasonType, "Regular Season");
+  assert.equal(response.meta.coverage, "unknown");
+  assert.match(response.meta.coverageNote, /not been live-verified/);
+  assert.equal(nba.capabilities.supportsPlayerSeasonStats, true);
+
+  const dashboard = requests.find((request) => request.url.includes("playerdashboardbygeneralsplits"));
+  assert.ok(dashboard.url.includes("PlayerID=2544"));
+  assert.ok(dashboard.url.includes("Season=2023-24"));
+  assert.ok(dashboard.url.includes("SeasonType=Regular+Season"));
+  const statsRequests = requests.filter((request) => request.url.includes("playerdashboardbygeneralsplits") || request.url.includes("commonplayerinfo"));
+  assert.equal(statsRequests.length, 2);
+  for (const request of statsRequests) {
+    assert.equal(request.headers.Accept, "application/json, text/plain, */*");
+    assert.equal(request.headers["Accept-Language"], "en-US,en;q=0.9");
+    assert.equal(request.headers.Origin, "https://www.nba.com");
+    assert.equal(request.headers.Referer, "https://www.nba.com/");
+    assert.equal(request.headers["Sec-Fetch-Dest"], "empty");
+    assert.equal(request.headers["Sec-Fetch-Mode"], "cors");
+    assert.equal(request.headers["Sec-Fetch-Site"], "same-site");
+    assert.equal(request.headers.Priority, "u=4");
+    assert.equal(request.headers["User-Agent"], "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0");
+    assert.equal(request.headers["Cache-Control"], "no-cache");
+    assert.equal(request.headers.Pragma, "no-cache");
+    assert.equal(request.headers["x-nba-stats-origin"], "stats");
+    assert.equal(request.headers["x-nba-stats-token"], "true");
+    assert.equal("Cookie" in request.headers, false);
+    assert.equal("Host" in request.headers, false);
+  }
+
+  await assert.rejects(
+    nba.getPlayerSeasonStats({ playerId: "2544", season: "2023" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+});
+
+test("NbaComProvider normalizes and locally paginates historical player game logs", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+
+  const response = await nba.getPlayerGameLog({ playerId: "2544", season: "2023-24", dateFrom: "2024-01-01", dateTo: "2024-01-31", limit: 1 });
+  assert.equal(response.games.length, 1);
+  assert.equal(response.games[0].game.gameId, "0022300642");
+  assert.equal(response.games[0].game.date, "2024-01-17");
+  assert.equal(response.games[0].game.homeTeam.abbreviation, "LAL");
+  assert.equal(response.games[0].game.awayTeam.abbreviation, "DAL");
+  assert.equal(response.games[0].result, "W");
+  assert.equal(response.games[0].stats.points, 26);
+  assert.deepEqual(response.page, { limit: 1, hasMore: true, isBoundedResult: true, nextCursor: "1" });
+  assert.equal(response.meta.dataset, "stats.nba.com/playergamelog");
+  assert.equal(nba.capabilities.supportsPlayerGameLogs, true);
+
+  const gameLogRequest = requests.find((request) => request.url.includes("playergamelog"));
+  assert.ok(gameLogRequest.url.includes("DateFrom=01%2F01%2F2024"));
+  assert.ok(gameLogRequest.url.includes("DateTo=01%2F31%2F2024"));
+  assert.equal(gameLogRequest.headers.Accept, "application/json, text/plain, */*");
+  assert.equal(gameLogRequest.headers["Accept-Language"], "en-US,en;q=0.9");
+  assert.equal(gameLogRequest.headers.Origin, "https://www.nba.com");
+  assert.equal(gameLogRequest.headers.Referer, "https://www.nba.com/");
+  assert.equal(gameLogRequest.headers["Sec-Fetch-Dest"], "empty");
+  assert.equal(gameLogRequest.headers["Sec-Fetch-Mode"], "cors");
+  assert.equal(gameLogRequest.headers["Sec-Fetch-Site"], "same-site");
+  assert.equal(gameLogRequest.headers.Priority, "u=4");
+  assert.equal(gameLogRequest.headers["User-Agent"], "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0");
+  assert.equal(gameLogRequest.headers["Cache-Control"], "no-cache");
+  assert.equal(gameLogRequest.headers.Pragma, "no-cache");
+  assert.equal(gameLogRequest.headers["x-nba-stats-origin"], "stats");
+  assert.equal(gameLogRequest.headers["x-nba-stats-token"], "true");
+  assert.equal("Cookie" in gameLogRequest.headers, false);
+  assert.equal("Host" in gameLogRequest.headers, false);
+
+  await assert.rejects(
+    nba.getPlayerGameLog({ playerId: "2544", season: "2023-24", dateFrom: "2024-02-01", dateTo: "2024-01-01" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+});
+
+test("NbaComProvider normalizes historical team season stats with canonical team IDs", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+
+  const response = await nba.getTeamSeasonStats({ teamId: "LAL", season: "2023-24", perMode: "Totals" });
+  assert.equal(response.teamSeasonStats.team.id, "1610612747");
+  assert.equal(response.teamSeasonStats.team.abbreviation, "LAL");
+  assert.equal(response.teamSeasonStats.perMode, "Totals");
+  assert.deepEqual(response.teamSeasonStats.stats, {
+    gamesPlayed: 82, wins: 47, losses: 35, minutes: 48.2, points: 9588,
+    rebounds: 3583, offensiveRebounds: 789, defensiveRebounds: 2794, assists: 2356,
+    steals: 594, blocks: 424, turnovers: 1123, fouls: 1548, fieldGoalsMade: 3521,
+    fieldGoalsAttempted: 7314, threePointersMade: 1080, threePointersAttempted: 2928,
+    freeThrowsMade: 1462, freeThrowsAttempted: 1881,
+  });
+  assert.equal(response.meta.dataset, "stats.nba.com/teamdashboardbygeneralsplits");
+  assert.equal(nba.capabilities.supportsTeamSeasonStats, true);
+
+  const request = requests.find((candidate) => candidate.url.includes("teamdashboardbygeneralsplits"));
+  assert.ok(request.url.includes("TeamID=1610612747"));
+  assert.ok(request.url.includes("PerMode=Totals"));
+  assert.equal(request.headers.Accept, "application/json, text/plain, */*");
+  assert.equal(request.headers.Origin, "https://www.nba.com");
+  assert.equal(request.headers["x-nba-stats-origin"], "stats");
+
+  await assert.rejects(
+    nba.getTeamSeasonStats({ teamId: "not-a-team", season: "2023-24" }),
+    (error) => error instanceof ProviderError && error.code === "NOT_FOUND",
+  );
+});
+
+test("NbaComProvider normalizes and locally paginates historical team game logs", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+
+  const response = await nba.getTeamGameLog({ teamId: "1610612747", season: "2023-24", dateFrom: "2024-01-01", limit: 1 });
+  assert.equal(response.team.abbreviation, "LAL");
+  assert.equal(response.games.length, 1);
+  assert.equal(response.games[0].game.gameId, "0022300642");
+  assert.equal(response.games[0].game.homeTeam.abbreviation, "LAL");
+  assert.equal(response.games[0].game.awayTeam.abbreviation, "DAL");
+  assert.equal(response.games[0].stats.points, 127);
+  assert.deepEqual(response.page, { limit: 1, hasMore: true, isBoundedResult: true, nextCursor: "1" });
+  assert.equal(response.meta.dataset, "stats.nba.com/teamgamelog");
+  assert.equal(nba.capabilities.supportsTeamGameLogs, true);
+
+  const request = requests.find((candidate) => candidate.url.includes("teamgamelog"));
+  assert.ok(request.url.includes("TeamID=1610612747"));
+  assert.ok(request.url.includes("DateFrom=01%2F01%2F2024"));
+  assert.equal(request.headers.Accept, "application/json, text/plain, */*");
+  assert.equal(request.headers["Accept-Language"], "en-US,en;q=0.9");
+  assert.equal(request.headers.Origin, "https://www.nba.com");
+  assert.equal(request.headers["Sec-Fetch-Mode"], "cors");
+  assert.equal(request.headers["x-nba-stats-origin"], "stats");
+  assert.equal("Cookie" in request.headers, false);
+
+  await assert.rejects(
+    nba.getTeamGameLog({ teamId: "LAL", season: "2023-24", cursor: "not-a-cursor" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+});
+
+test("NbaComProvider normalizes and paginates historical league leaders", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+
+  const response = await nba.getLeagueLeaders({ season: "2023-24", statCategory: "pts", limit: 1 });
+  assert.equal(response.leaders.length, 1);
+  assert.deepEqual(response.leaders[0], {
+    scope: "player", rank: 1, player: { id: "203507", fullName: "Giannis Antetokounmpo", active: true, teamId: "1610612749" },
+    team: { id: "1610612749", abbreviation: "MIL", name: "Milwaukee Bucks", city: "Milwaukee" },
+    statCategory: "PTS", value: 2222, season: "2023-24", seasonType: "Regular Season", perMode: "PerGame",
+  });
+  assert.deepEqual(response.page, { limit: 1, hasMore: true, isBoundedResult: true, nextCursor: "1" });
+  assert.equal(response.meta.dataset, "stats.nba.com/leagueleaders");
+  assert.equal(nba.capabilities.supportsLeagueLeaders, true);
+
+  const request = requests.find((candidate) => candidate.url.includes("leagueleaders"));
+  assert.ok(request.url.includes("StatCategory=PTS"));
+  assert.ok(request.url.includes("Scope=S"));
+  assert.equal(request.headers.Accept, "application/json, text/plain, */*");
+  assert.equal(request.headers["x-nba-stats-token"], "true");
+
+  await assert.rejects(
+    nba.getLeagueLeaders({ season: "2023-24", statCategory: "BAD" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
 });
 
 test("NbaComProvider returns typed errors for unknown teams and upstream HTTP failures", async () => {

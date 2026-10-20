@@ -1,8 +1,8 @@
 import type { ProviderCapabilities } from "../domain/capabilities.js";
 import type {
   BoxScore, Game, GameBoxScoreResponse, GamesThisWeekResponse, GameStatus, GameStatusResponse, LiveGame, LiveGamesResponse,
-  Player, PlayerBoxScore, PlayByPlayEvent, RecentGameEventsResponse, ResponseMetadata, Roster,
-  SearchPlayersResponse, SearchTeamsResponse, Team, TeamBoxScore, TeamRosterResponse, TodaysGamesResponse,
+  LeagueLeader, LeagueLeadersResponse, Player, PlayerBoxScore, PlayerGameLogResponse, PlayerSeasonStatsResponse, PlayByPlayEvent, RecentGameEventsResponse, ResponseMetadata, Roster,
+  SearchPlayersResponse, SearchTeamsResponse, Team, TeamBoxScore, TeamGameLogResponse, TeamRosterResponse, TeamSeasonStatsResponse, TodaysGamesResponse, TraditionalStats,
 } from "../domain/models.js";
 import type { DataProvider, GetGamesThisWeekInput, GetHistoricalGameEventsInput, GetLeagueLeadersInput, GetLeagueStandingsInput, GetPlayerGameLogInput, GetPlayerSeasonStatsInput, GetRecentGameEventsInput, GetTeamGameLogInput, GetTeamSeasonStatsInput, GetTodaysGamesInput, SearchPlayersInput } from "./DataProvider.js";
 import { ProviderError } from "./ProviderError.js";
@@ -70,6 +70,139 @@ function headersFor(url: string) {
   if (host === "cdn.nba.com") return LIVE_HEADERS;
   return BROWSER_FETCH_HEADERS;
 }
+function statsUrl(endpoint: string, parameters: Record<string, string>): string {
+  const url = new URL(`${STATS_BASE_URL}/${endpoint}`);
+  for (const [name, value] of Object.entries(parameters)) url.searchParams.set(name, value);
+  return url.toString();
+}
+interface StatsTable { headers: string[]; rows: unknown[][]; }
+function statsTable(data: JsonObject, name: string): StatsTable {
+  const singularResultSet = object(data.resultSet);
+  const tables = [...array(data.resultSets), ...array(data.resultSet), ...(text(singularResultSet.name) ? [singularResultSet] : [])].map(object);
+  const table = tables.find((candidate) => requiredText(candidate.name) === name);
+  if (!table) throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com did not return the '${name}' result set.`);
+  return { headers: array(table.headers).map(String), rows: array(table.rowSet).map(array) };
+}
+function statsValue(table: StatsTable, row: unknown[], name: string): unknown {
+  const index = table.headers.indexOf(name);
+  return index < 0 ? undefined : row[index];
+}
+function statsNumber(table: StatsTable, row: unknown[], ...names: string[]): number | undefined {
+  for (const name of names) {
+    const value = number(statsValue(table, row, name));
+    if (value !== undefined) return value;
+  }
+  return undefined;
+}
+function setStat(target: TraditionalStats, key: keyof TraditionalStats, value: number | undefined): void {
+  if (value !== undefined) target[key] = value;
+}
+function traditionalStats(table: StatsTable, row: unknown[]): TraditionalStats {
+  const result: TraditionalStats = {};
+  setStat(result, "gamesPlayed", statsNumber(table, row, "GP"));
+  setStat(result, "gamesStarted", statsNumber(table, row, "GS"));
+  setStat(result, "minutes", statsNumber(table, row, "MIN"));
+  setStat(result, "points", statsNumber(table, row, "PTS"));
+  setStat(result, "rebounds", statsNumber(table, row, "REB"));
+  setStat(result, "offensiveRebounds", statsNumber(table, row, "OREB"));
+  setStat(result, "defensiveRebounds", statsNumber(table, row, "DREB"));
+  setStat(result, "assists", statsNumber(table, row, "AST"));
+  setStat(result, "steals", statsNumber(table, row, "STL"));
+  setStat(result, "blocks", statsNumber(table, row, "BLK"));
+  setStat(result, "turnovers", statsNumber(table, row, "TOV"));
+  setStat(result, "fouls", statsNumber(table, row, "PF"));
+  setStat(result, "fieldGoalsMade", statsNumber(table, row, "FGM"));
+  setStat(result, "fieldGoalsAttempted", statsNumber(table, row, "FGA"));
+  setStat(result, "threePointersMade", statsNumber(table, row, "FG3M", "FG3_M"));
+  setStat(result, "threePointersAttempted", statsNumber(table, row, "FG3A", "FG3_A"));
+  setStat(result, "freeThrowsMade", statsNumber(table, row, "FTM"));
+  setStat(result, "freeThrowsAttempted", statsNumber(table, row, "FTA"));
+  setStat(result, "wins", statsNumber(table, row, "W"));
+  setStat(result, "losses", statsNumber(table, row, "L"));
+  return result;
+}
+function isSeasonLabel(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})$/.exec(value);
+  return match !== null && Number(match[2]) === (Number(match[1]) + 1) % 100;
+}
+function historicalPlayerInput(input: GetPlayerSeasonStatsInput | GetPlayerGameLogInput): { playerId: string; season: string; seasonType: "Regular Season" | "Playoffs"; perMode: "PerGame" | "Totals" } {
+  const playerId = input.playerId.trim();
+  if (!playerId) throw new ProviderError("INVALID_ARGUMENT", "playerId must not be empty.");
+  if (!isSeasonLabel(input.season)) throw new ProviderError("INVALID_ARGUMENT", "season must use consecutive YYYY-YY years.");
+  const seasonType = input.seasonType ?? "Regular Season";
+  if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
+  const perMode = input.perMode ?? "PerGame";
+  if (perMode !== "PerGame" && perMode !== "Totals") throw new ProviderError("INVALID_ARGUMENT", "perMode must be PerGame or Totals.");
+  return { playerId, season: input.season, seasonType, perMode };
+}
+function historicalTeamInput(input: GetTeamSeasonStatsInput | GetTeamGameLogInput): { team: Team; season: string; seasonType: "Regular Season" | "Playoffs"; perMode: "PerGame" | "Totals" } {
+  const team = canonicalNbaTeam(input.teamId);
+  if (!team) throw new ProviderError("NOT_FOUND", `NBA team '${input.teamId}' was not found.`);
+  if (!isSeasonLabel(input.season)) throw new ProviderError("INVALID_ARGUMENT", "season must use consecutive YYYY-YY years.");
+  const seasonType = input.seasonType ?? "Regular Season";
+  if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
+  const perMode = input.perMode ?? "PerGame";
+  if (perMode !== "PerGame" && perMode !== "Totals") throw new ProviderError("INVALID_ARGUMENT", "perMode must be PerGame or Totals.");
+  return { team, season: input.season, seasonType, perMode };
+}
+const LEADER_STAT_CATEGORIES = new Set(["PTS", "REB", "AST", "STL", "BLK", "FGM", "FGA", "FG3M", "FG3A", "FTM", "FTA", "MIN"]);
+function historicalLeagueLeadersInput(input: GetLeagueLeadersInput): { season: string; seasonType: "Regular Season" | "Playoffs"; perMode: "PerGame" | "Totals"; statCategory: string; limit: number; offset: number } {
+  if (!isSeasonLabel(input.season)) throw new ProviderError("INVALID_ARGUMENT", "season must use consecutive YYYY-YY years.");
+  const seasonType = input.seasonType ?? "Regular Season";
+  if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
+  const perMode = input.perMode ?? "PerGame";
+  if (perMode !== "PerGame" && perMode !== "Totals") throw new ProviderError("INVALID_ARGUMENT", "perMode must be PerGame or Totals.");
+  const statCategory = input.statCategory.trim().toUpperCase();
+  if (!LEADER_STAT_CATEGORIES.has(statCategory)) throw new ProviderError("INVALID_ARGUMENT", `statCategory must be one of: ${[...LEADER_STAT_CATEGORIES].join(", ")}.`);
+  return { season: input.season, seasonType, perMode, statCategory, ...pageInput(input.limit, input.cursor) };
+}
+function isoDate(value: string | undefined, name: string): string | undefined {
+  if (value === undefined) return undefined;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())) {
+    throw new ProviderError("INVALID_ARGUMENT", `${name} must use YYYY-MM-DD format.`);
+  }
+  return value;
+}
+function pageInput(limit: number | undefined, cursor: string | undefined): { limit: number; offset: number } {
+  const resolvedLimit = limit ?? 100;
+  if (!Number.isInteger(resolvedLimit) || resolvedLimit < 1 || resolvedLimit > 100) throw new ProviderError("INVALID_ARGUMENT", "limit must be an integer from 1 through 100.");
+  if (cursor === undefined) return { limit: resolvedLimit, offset: 0 };
+  if (!/^(0|[1-9]\d*)$/.test(cursor)) throw new ProviderError("INVALID_ARGUMENT", "cursor is invalid for this result set.");
+  return { limit: resolvedLimit, offset: Number(cursor) };
+}
+function nbaStatsDate(value: string | undefined): string {
+  return value ? `${value.slice(5, 7)}/${value.slice(8, 10)}/${value.slice(0, 4)}` : "";
+}
+function gameLogDate(value: unknown): string {
+  const source = requiredText(value);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(source)) return source;
+  const parsed = Date.parse(source);
+  if (!Number.isFinite(parsed)) throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com returned an invalid game date '${source}'.`);
+  return new Date(parsed).toISOString().slice(0, 10);
+}
+function teamFromAbbreviation(abbreviation: string): Team {
+  return canonicalNbaTeam(abbreviation) ?? { id: abbreviation, abbreviation, name: abbreviation };
+}
+function playerFromStatsProfile(table: StatsTable, row: unknown[], playerId: string): Player {
+  const firstName = text(statsValue(table, row, "FIRST_NAME"));
+  const lastName = text(statsValue(table, row, "LAST_NAME"));
+  const fullName = text(statsValue(table, row, "DISPLAY_FIRST_LAST")) ?? [firstName, lastName].filter(Boolean).join(" ");
+  if (!fullName) throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com did not return a display name for player '${playerId}'.`);
+  const teamId = text(statsValue(table, row, "TEAM_ID"));
+  const status = text(statsValue(table, row, "ROSTERSTATUS"));
+  const position = text(statsValue(table, row, "POSITION"));
+  return { id: playerId, fullName, ...(firstName ? { firstName } : {}), ...(lastName ? { lastName } : {}), ...(teamId && teamId !== "0" ? { teamId } : {}), ...(position ? { position } : {}), active: status ? status.toLowerCase() === "active" : true };
+}
+function gameFromStatsLog(table: StatsTable, row: unknown[]): Game {
+  const matchup = requiredText(statsValue(table, row, "MATCHUP"));
+  const match = /^([A-Z]{2,3})\s+(vs\.?|@)\s+([A-Z]{2,3})$/.exec(matchup);
+  if (!match) throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com returned an unrecognized player-game matchup '${matchup}'.`);
+  const team = teamFromAbbreviation(match[1]!);
+  const opponent = teamFromAbbreviation(match[3]!);
+  const home = match[2]!.startsWith("vs") ? team : opponent;
+  const away = match[2]!.startsWith("vs") ? opponent : team;
+  return { gameId: requiredText(statsValue(table, row, "Game_ID")), date: gameLogDate(statsValue(table, row, "GAME_DATE")), status: { state: "final", period: 4, statusText: "Final" }, homeTeam: home, awayTeam: away };
+}
 function retryDelayMs(value: string | null, now = Date.now()): number {
   const seconds = Number.parseInt(value ?? "", 10);
   if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
@@ -131,7 +264,7 @@ export class NbaComProvider implements DataProvider {
   readonly name = "nba-com";
 
   constructor(private readonly request: typeof fetch = fetch) {}
-  readonly capabilities: ProviderCapabilities = { supportsLiveScores: true, supportsLiveBoxScores: true, supportsPlayByPlay: true, supportsCurrentRosters: true, supportsInjuries: false, supportsHistoricalStats: false, supportsPlayerSeasonStats: false, supportsPlayerGameLogs: false, supportsTeamSeasonStats: false, supportsTeamGameLogs: false, supportsLeagueLeaders: false, supportsHistoricalStandings: false, supportsHistoricalBoxScores: false, supportsHistoricalPlayByPlay: false, updateFrequencySeconds: 10 };
+  readonly capabilities: ProviderCapabilities = { supportsLiveScores: true, supportsLiveBoxScores: true, supportsPlayByPlay: true, supportsCurrentRosters: true, supportsInjuries: false, supportsHistoricalStats: true, supportsPlayerSeasonStats: true, supportsPlayerGameLogs: true, supportsTeamSeasonStats: true, supportsTeamGameLogs: true, supportsLeagueLeaders: true, supportsHistoricalStandings: false, supportsHistoricalBoxScores: false, supportsHistoricalPlayByPlay: false, updateFrequencySeconds: 10 };
 
   private async getJson(url: string): Promise<{ data: JsonObject; latencyMs: number }> {
     const started = Date.now();
@@ -172,6 +305,9 @@ export class NbaComProvider implements DataProvider {
   }
 
   private meta(latencyMs: number, live: boolean): ResponseMetadata { return { source: this.name, lastUpdated: new Date().toISOString(), dataFreshnessSeconds: 0, isLive: live, cacheStatus: "bypass", providerLatencyMs: latencyMs }; }
+  private historicalMeta(latencyMs: number, season: string, seasonType: "Regular Season" | "Playoffs", dataset: string): ResponseMetadata {
+    return { ...this.meta(latencyMs, false), season, seasonType, dataset, coverage: "unknown", coverageNote: "Historical source coverage is fixture-validated but has not been live-verified." };
+  }
   /** The CDN scoreboard is the primary source for the current NBA slate. */
   private async todaysSchedule(): Promise<{ games: Game[]; latencyMs: number }> {
     const response = await this.getJson(`${LIVE_BASE_URL}/scoreboard/todaysScoreboard_00.json`);
@@ -291,11 +427,98 @@ export class NbaComProvider implements DataProvider {
   private historicalUnavailable(): never {
     throw new ProviderError("UNSUPPORTED_CAPABILITY", "Historical NBA data has not been validated for the nba.com provider.");
   }
-  async getPlayerSeasonStats(_input: GetPlayerSeasonStatsInput) { return this.historicalUnavailable(); }
-  async getPlayerGameLog(_input: GetPlayerGameLogInput) { return this.historicalUnavailable(); }
-  async getTeamSeasonStats(_input: GetTeamSeasonStatsInput) { return this.historicalUnavailable(); }
-  async getTeamGameLog(_input: GetTeamGameLogInput) { return this.historicalUnavailable(); }
-  async getLeagueLeaders(_input: GetLeagueLeadersInput) { return this.historicalUnavailable(); }
+  async getPlayerSeasonStats(input: GetPlayerSeasonStatsInput): Promise<PlayerSeasonStatsResponse> {
+    const { playerId, season, seasonType, perMode } = historicalPlayerInput(input);
+    const dashboardUrl = statsUrl("playerdashboardbygeneralsplits", {
+      DateFrom: "", DateTo: "", GameSegment: "", LastNGames: "0", LeagueID: "00", Location: "", MeasureType: "Base", Month: "0", OpponentTeamID: "0", Outcome: "", PORound: "0", PaceAdjust: "N", PerMode: perMode, Period: "0", PlayerID: playerId, PlusMinus: "N", Rank: "N", Season: season, SeasonSegment: "", SeasonType: seasonType, ShotClockRange: "", VsConference: "", VsDivision: "",
+    });
+    const profileUrl = statsUrl("commonplayerinfo", { LeagueID: "00", PlayerID: playerId });
+    const [dashboard, profile] = await Promise.all([this.getJson(dashboardUrl), this.getJson(profileUrl)]);
+    const overall = statsTable(dashboard.data, "OverallPlayerDashboard");
+    const profileTable = statsTable(profile.data, "CommonPlayerInfo");
+    const overallRow = overall.rows[0];
+    const profileRow = profileTable.rows[0];
+    if (!overallRow) throw new ProviderError("DATA_UNAVAILABLE", `nba.com has no ${season} ${seasonType.toLowerCase()} aggregate for player '${playerId}'.`);
+    if (!profileRow) throw new ProviderError("NOT_FOUND", `nba.com did not return player '${playerId}'.`);
+    const player = playerFromStatsProfile(profileTable, profileRow, playerId);
+    return {
+      playerSeasonStats: { player, season, seasonType, perMode, stats: traditionalStats(overall, overallRow) },
+      meta: this.historicalMeta(Math.max(dashboard.latencyMs, profile.latencyMs), season, seasonType, "stats.nba.com/playerdashboardbygeneralsplits"),
+    };
+  }
+  async getPlayerGameLog(input: GetPlayerGameLogInput): Promise<PlayerGameLogResponse> {
+    const { playerId, season, seasonType } = historicalPlayerInput(input);
+    const dateFrom = isoDate(input.dateFrom, "dateFrom");
+    const dateTo = isoDate(input.dateTo, "dateTo");
+    if (dateFrom && dateTo && dateFrom > dateTo) throw new ProviderError("INVALID_ARGUMENT", "dateFrom must not be after dateTo.");
+    const { limit, offset } = pageInput(input.limit, input.cursor);
+    const gameLogUrl = statsUrl("playergamelog", { DateFrom: nbaStatsDate(dateFrom), DateTo: nbaStatsDate(dateTo), LeagueID: "00", PlayerID: playerId, Season: season, SeasonType: seasonType });
+    const profileUrl = statsUrl("commonplayerinfo", { LeagueID: "00", PlayerID: playerId });
+    const [gameLog, profile] = await Promise.all([this.getJson(gameLogUrl), this.getJson(profileUrl)]);
+    const log = statsTable(gameLog.data, "PlayerGameLog");
+    const profileTable = statsTable(profile.data, "CommonPlayerInfo");
+    const profileRow = profileTable.rows[0];
+    if (!profileRow) throw new ProviderError("NOT_FOUND", `nba.com did not return player '${playerId}'.`);
+    const player = playerFromStatsProfile(profileTable, profileRow, playerId);
+    const games = log.rows
+      .map((row) => ({ player, game: gameFromStatsLog(log, row), matchup: requiredText(statsValue(log, row, "MATCHUP")), ...(text(statsValue(log, row, "WL")) ? { result: requiredText(statsValue(log, row, "WL")) as "W" | "L" } : {}), stats: traditionalStats(log, row) }))
+      .filter((entry) => (!dateFrom || entry.game.date >= dateFrom) && (!dateTo || entry.game.date <= dateTo));
+    const items = games.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const hasMore = nextOffset < games.length;
+    return { player, season, seasonType, games: items, page: { limit, hasMore, isBoundedResult: hasMore, ...(hasMore ? { nextCursor: String(nextOffset) } : {}) }, meta: this.historicalMeta(Math.max(gameLog.latencyMs, profile.latencyMs), season, seasonType, "stats.nba.com/playergamelog") };
+  }
+  async getTeamSeasonStats(input: GetTeamSeasonStatsInput): Promise<TeamSeasonStatsResponse> {
+    const { team, season, seasonType, perMode } = historicalTeamInput(input);
+    const url = statsUrl("teamdashboardbygeneralsplits", {
+      DateFrom: "", DateTo: "", GameSegment: "", LastNGames: "0", LeagueID: "00", Location: "", MeasureType: "Base", Month: "0", OpponentTeamID: "0", Outcome: "", PORound: "0", PaceAdjust: "N", PerMode: perMode, Period: "0", PlusMinus: "N", Rank: "N", Season: season, SeasonSegment: "", SeasonType: seasonType, ShotClockRange: "", TeamID: team.id, VsConference: "", VsDivision: "",
+    });
+    const response = await this.getJson(url);
+    const overall = statsTable(response.data, "OverallTeamDashboard");
+    const row = overall.rows[0];
+    if (!row) throw new ProviderError("DATA_UNAVAILABLE", `nba.com has no ${season} ${seasonType.toLowerCase()} aggregate for team '${team.id}'.`);
+    return {
+      teamSeasonStats: { team, season, seasonType, perMode, stats: traditionalStats(overall, row) },
+      meta: this.historicalMeta(response.latencyMs, season, seasonType, "stats.nba.com/teamdashboardbygeneralsplits"),
+    };
+  }
+  async getTeamGameLog(input: GetTeamGameLogInput): Promise<TeamGameLogResponse> {
+    const { team, season, seasonType } = historicalTeamInput(input);
+    const dateFrom = isoDate(input.dateFrom, "dateFrom");
+    const dateTo = isoDate(input.dateTo, "dateTo");
+    if (dateFrom && dateTo && dateFrom > dateTo) throw new ProviderError("INVALID_ARGUMENT", "dateFrom must not be after dateTo.");
+    const { limit, offset } = pageInput(input.limit, input.cursor);
+    const url = statsUrl("teamgamelog", { DateFrom: nbaStatsDate(dateFrom), DateTo: nbaStatsDate(dateTo), LeagueID: "00", Season: season, SeasonType: seasonType, TeamID: team.id });
+    const response = await this.getJson(url);
+    const log = statsTable(response.data, "TeamGameLog");
+    const games = log.rows
+      .map((row) => ({ team, game: gameFromStatsLog(log, row), matchup: requiredText(statsValue(log, row, "MATCHUP")), ...(text(statsValue(log, row, "WL")) ? { result: requiredText(statsValue(log, row, "WL")) as "W" | "L" } : {}), stats: traditionalStats(log, row) }))
+      .filter((entry) => (!dateFrom || entry.game.date >= dateFrom) && (!dateTo || entry.game.date <= dateTo));
+    const items = games.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const hasMore = nextOffset < games.length;
+    return { team, season, seasonType, games: items, page: { limit, hasMore, isBoundedResult: hasMore, ...(hasMore ? { nextCursor: String(nextOffset) } : {}) }, meta: this.historicalMeta(response.latencyMs, season, seasonType, "stats.nba.com/teamgamelog") };
+  }
+  async getLeagueLeaders(input: GetLeagueLeadersInput): Promise<LeagueLeadersResponse> {
+    const { season, seasonType, perMode, statCategory, limit, offset } = historicalLeagueLeadersInput(input);
+    const response = await this.getJson(statsUrl("leagueleaders", { LeagueID: "00", PerMode: perMode, Scope: "S", Season: season, SeasonType: seasonType, StatCategory: statCategory }));
+    const leadersTable = statsTable(response.data, "LeagueLeaders");
+    const leaders: LeagueLeader[] = leadersTable.rows.map((row) => {
+      const playerId = requiredText(statsValue(leadersTable, row, "PLAYER_ID"));
+      const fullName = requiredText(statsValue(leadersTable, row, "PLAYER"));
+      const teamId = text(statsValue(leadersTable, row, "TEAM_ID"));
+      const abbreviation = text(statsValue(leadersTable, row, "TEAM"));
+      const team = abbreviation ? teamFromAbbreviation(abbreviation) : undefined;
+      return {
+        scope: "player", rank: requiredNumber(statsValue(leadersTable, row, "RANK")), player: { id: playerId, fullName, active: true, ...(teamId ? { teamId } : {}) }, ...(team ? { team } : {}),
+        statCategory, value: requiredNumber(statsValue(leadersTable, row, statCategory)), season, seasonType, perMode,
+      };
+    });
+    const items = leaders.slice(offset, offset + limit);
+    const nextOffset = offset + items.length;
+    const hasMore = nextOffset < leaders.length;
+    return { season, seasonType, perMode, statCategory, leaders: items, page: { limit, hasMore, isBoundedResult: hasMore, ...(hasMore ? { nextCursor: String(nextOffset) } : {}) }, meta: this.historicalMeta(response.latencyMs, season, seasonType, "stats.nba.com/leagueleaders") };
+  }
   async getLeagueStandings(_input: GetLeagueStandingsInput) { return this.historicalUnavailable(); }
   async getHistoricalGameBoxScore(_gameId: string) { return this.historicalUnavailable(); }
   async getHistoricalGameEvents(_input: GetHistoricalGameEventsInput) { return this.historicalUnavailable(); }

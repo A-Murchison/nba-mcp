@@ -1,0 +1,10 @@
+{
+  "resultSet": {
+      "name": "LeagueLeaders",
+      "headers": ["PLAYER_ID", "RANK", "PLAYER", "TEAM_ID", "TEAM", "GP", "PTS", "REB", "AST"],
+      "rowSet": [
+        [203507, 1, "Giannis Antetokounmpo", 1610612749, "MIL", 73, 2222, 841, 476],
+        [1629029, 2, "Luka Doncic", 1610612742, "DAL", 70, 2198, 647, 686]
+      ]
+  }
+}
