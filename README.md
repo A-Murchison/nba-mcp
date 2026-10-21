@@ -96,7 +96,6 @@ Choose a provider with `NBA_MCP_PROVIDER`; see [Configuration](#configuration) f
 
 With `nba-com`, you can access current and upcoming schedules, live game status, box scores, play-by-play, and team rosters, along with historical player and team statistics, game logs, league leaders, standings, and selected archived game data. Team search covers all 30 NBA teams; player-directory search is not available. Data is sourced from public NBA endpoints, so availability and historical coverage may change.
 
-> This project is not affiliated with, endorsed by, or sponsored by the NBA. You are responsible for complying with your data provider’s terms.
 
 ## What your assistant can do
 
@@ -154,3 +153,5 @@ When running directly, the server uses stdio. It will appear to wait for input i
 ## Current limits
 
 Historical tools cover traditional player/team season stats and game logs, league leaders and standings, plus archived game detail. NBA Stats and CDN archives are public upstream sources and can be blocked, changed, or incomplete; archived box-score and play-by-play coverage is explicitly partial. In particular, the NBA Stats `leagueleaders` endpoint can return HTML instead of JSON; in that case `get_league_leaders` returns a typed `PROVIDER_UNAVAILABLE` error rather than incomplete data. The server does not provide advanced analytics, shot charts, betting/odds, fantasy projections, or generated game recaps.
+
+> **Unofficial project:** nba-mcp is not affiliated with, endorsed by, or sponsored by the NBA. NBA names, logos, and data may be subject to third-party rights and terms; users are responsible for complying with applicable data-provider terms.

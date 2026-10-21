@@ -16,6 +16,11 @@ Guidance for coding agents working in this repository:
 - Do not commit secrets, credentials, local machine paths, generated noise, or large unnecessary files.
 - Before finishing, summarize what changed, how it was validated, and any remaining follow-up work.
 
+## GitHub Actions security
+
+- Pin every GitHub Action in workflow `uses:` steps to a full 40-character commit SHA, not a mutable tag or branch. Include the corresponding release tag in an inline comment (for example, `# v4`) for maintainability.
+- Keep the `github-actions` Dependabot configuration enabled so pinned action revisions receive update pull requests.
+
 ## NBA.com request headers
 
 NBA CDN endpoints require browser-compatible headers. Keep these headers in `src/providers/NbaComProvider.ts` and apply them to requests for `cdn.nba.com`, including:
