@@ -11,6 +11,11 @@ Ask your MCP client questions such as:
 - “Who is on the Boston Celtics roster?”
 - “What NBA games are on this week?”
 
+***My example of the NBA opening night in [Pi](https://github.com/earendil-works/pi) harness***
+
+<img width="990" height="697" alt="knicks-recap" src="https://github.com/user-attachments/assets/8a4d6e11-acec-461f-9968-ddb691854634" />
+
+
 ## Quick start
 
 ### 1. Install and build
