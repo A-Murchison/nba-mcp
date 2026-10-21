@@ -5,13 +5,11 @@ loadEnvFile({ path: ".env.local", quiet: true });
 
 export interface Config {
   provider: "mock" | "nba-com";
-  apiKey?: string;
   cacheTtlLiveSeconds: number;
   cacheTtlRosterSeconds: number;
   cacheTtlHistoricalSeconds: number;
   cacheTtlHistoricalLogSeconds: number;
   timezone: string;
-  logLevel: "debug" | "info" | "warn" | "error";
 }
 
 function integerFromEnv(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -32,19 +30,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     throw new Error("NBA_MCP_PROVIDER must be either 'mock' or 'nba-com'.");
   }
 
-  const logLevel = env.NBA_MCP_LOG_LEVEL ?? "info";
-  if (!["debug", "info", "warn", "error"].includes(logLevel)) {
-    throw new Error("NBA_MCP_LOG_LEVEL must be one of: debug, info, warn, error.");
+  const timezone = env.NBA_MCP_TIMEZONE ?? "America/New_York";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: timezone });
+  } catch {
+    throw new Error("NBA_MCP_TIMEZONE must be a valid IANA timezone.");
   }
 
   return {
     provider,
-    ...(env.NBA_MCP_API_KEY ? { apiKey: env.NBA_MCP_API_KEY } : {}),
     cacheTtlLiveSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_LIVE_SECONDS", 10),
     cacheTtlRosterSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_ROSTER_SECONDS", 86_400),
     cacheTtlHistoricalSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_HISTORICAL_SECONDS", 604_800),
     cacheTtlHistoricalLogSeconds: integerFromEnv(env, "NBA_MCP_CACHE_TTL_HISTORICAL_LOG_SECONDS", 86_400),
-    timezone: env.NBA_MCP_TIMEZONE ?? "America/New_York",
-    logLevel: logLevel as Config["logLevel"],
+    timezone,
   };
 }

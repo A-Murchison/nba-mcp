@@ -42,6 +42,14 @@ export const TOOL_NAMES = [
   "get_team_roster",
   "search_teams",
   "search_players",
+  "get_player_season_stats",
+  "get_player_game_log",
+  "get_team_season_stats",
+  "get_team_game_log",
+  "get_league_leaders",
+  "get_league_standings",
+  "get_historical_game_box_score",
+  "get_historical_game_events",
 ] as const;
 
 export type ToolName = (typeof TOOL_NAMES)[number];

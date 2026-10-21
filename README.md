@@ -61,6 +61,8 @@ This server communicates over standard input/output (stdio), not a web URL. Repl
 }
 ```
 
+`mock` provides deterministic sample data. Change it to `nba-com` in either configuration above to use current public NBA data.
+
 Restart your client, then ask it: **“What NBA games are live right now?”** For more client setup and troubleshooting, see [MCP client configuration](docs/client-configuration.md).
 
 ## Version and update verification
@@ -80,14 +82,14 @@ bun -e 'console.log(require("./package.json").version)'
 
 ## Choose a data provider
 
-Set `NBA_MCP_PROVIDER` in your client configuration or environment.
+Choose a provider with `NBA_MCP_PROVIDER`; see [Configuration](#configuration) for how to set environment variables.
 
 | Provider | Best for | What to expect |
 | --- | --- | --- |
 | `mock` (default) | Trying the server, development, and tests | Reliable, deterministic sample data; no account or API key needed. |
 | `nba-com` | Current NBA information | Public nba.com live data; no API key needed. Availability can be affected by rate limits, automated-traffic blocking, or upstream changes. |
 
-With `nba-com`, current and upcoming schedules, game status, box scores, play-by-play, and rosters are supported. Team search covers all 30 NBA teams. Player-directory search is not available from this provider. Current-day schedules, live-game discovery, and game status use NBA's CDN live scoreboard (`https://cdn.nba.com/static/json/liveData/scoreboard/todaysScoreboard_00.json`) first. Explicit dates and weekly schedules use the public CDN season schedule (`https://cdn.nba.com/static/json/staticData/scheduleLeagueV2_1.json`), avoiding the automated-traffic restrictions imposed by the `core-api.nba.com` gamecard feed. Box scores and play-by-play use live-data endpoints. The provider uses browser-compatible request headers for NBA CDN requests and retries a rate-limited request after the upstream's requested delay; upstream availability and the schedule's current-season coverage can still change.
+With `nba-com`, you can access current and upcoming schedules, live game status, box scores, play-by-play, and team rosters, along with historical player and team statistics, game logs, league leaders, standings, and selected archived game data. Team search covers all 30 NBA teams; player-directory search is not available. Data is sourced from public NBA endpoints, so availability and historical coverage may change.
 
 > This project is not affiliated with, endorsed by, or sponsored by the NBA. You are responsible for complying with your data provider’s terms.
 
@@ -104,26 +106,34 @@ With `nba-com`, current and upcoming schedules, game status, box scores, play-by
 | `get_team_roster` | A team’s current roster |
 | `search_teams` | Find a team ID from a name, city, or abbreviation |
 | `search_players` | Find active players by name |
+| `get_player_season_stats` | Traditional player statistics for a season and phase |
+| `get_player_game_log` | Paginated player games for a season, with optional dates |
+| `get_team_season_stats` | Traditional team statistics for a season and phase |
+| `get_team_game_log` | Paginated team games for a season, with optional dates |
+| `get_league_leaders` | Paginated leaders for supported traditional stat categories |
+| `get_league_standings` | Final standings for a season and phase |
+| `get_historical_game_box_score` | Final archived game box score (partial archive coverage) |
+| `get_historical_game_events` | Paginated archived play-by-play (partial archive coverage) |
 | `get_server_capabilities` | Check the active provider, supported tools, and limitations |
 
 Live responses include freshness information. Results are cached in memory briefly to reduce repeated requests; restarting the server clears that cache.
 
 ## Configuration
 
-All settings are optional. Copy `.env.example` to `.env.local` for local use, or provide them through your MCP client. Client-supplied environment variables take precedence.
+All settings are optional. Copy `.env.example` to `.env.local` for local use, or provide them through your MCP client. Environment variables supplied by the client or process take precedence over `.env.local`.
 
 ```text
 NBA_MCP_PROVIDER=mock
 NBA_MCP_CACHE_TTL_LIVE_SECONDS=10
 NBA_MCP_CACHE_TTL_ROSTER_SECONDS=86400
-# Reserved for the staged historical-data release; no historical tools are exposed yet.
+# Historical aggregates, standings, and final box scores (seven days).
 NBA_MCP_CACHE_TTL_HISTORICAL_SECONDS=604800
+# Historical game logs and play-by-play pages (one day).
 NBA_MCP_CACHE_TTL_HISTORICAL_LOG_SECONDS=86400
 NBA_MCP_TIMEZONE=America/New_York
-NBA_MCP_LOG_LEVEL=info
 ```
 
-`NBA_MCP_TIMEZONE` accepts an IANA timezone such as `Europe/London`, `Asia/Tokyo`, or `America/New_York`. Use it when asking for a day’s schedule so “today” matches your location.
+Schedule lookups are cached for a fixed 60 seconds. `NBA_MCP_TIMEZONE` must be a valid IANA timezone such as `Europe/London`, `Asia/Tokyo`, or `America/New_York`; use it when asking for a day’s schedule so “today” matches your location.
 
 ## Run locally
 
@@ -138,4 +148,4 @@ When running directly, the server uses stdio. It will appear to wait for input i
 
 ## Current limits
 
-This server focuses on current and live NBA information. It does not provide historical box scores, long-term player game logs, advanced analytics, shot charts, or generated game recaps.
+Historical tools cover traditional player/team season stats and game logs, league leaders and standings, plus archived game detail. NBA Stats and CDN archives are public upstream sources and can be blocked, changed, or incomplete; archived box-score and play-by-play coverage is explicitly partial. In particular, the NBA Stats `leagueleaders` endpoint can return HTML instead of JSON; in that case `get_league_leaders` returns a typed `PROVIDER_UNAVAILABLE` error rather than incomplete data. The server does not provide advanced analytics, shot charts, betting/odds, fantasy projections, or generated game recaps.

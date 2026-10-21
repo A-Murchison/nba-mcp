@@ -64,6 +64,12 @@ test("MockProvider returns season-scoped historical aggregates and filtered logs
   assert.equal(log.games[0].game.date, "1991-04-21");
   assert.deepEqual(noGames.games, []);
   assert.equal(noGames.page.hasMore, false);
+
+  const historicalGame = await provider.getHistoricalGameBoxScore("mock-final-001");
+  const historicalEvents = await provider.getHistoricalGameEvents({ gameId: "mock-final-001" });
+  assert.deepEqual(historicalGame.historicalGame.boxScore.teams.map((entry) => entry.team.id), ["GSW", "LAL"]);
+  assert.equal(historicalGame.historicalGame.boxScore.teams[0].points, historicalGame.historicalGame.game.homeTeam.score);
+  assert.ok(historicalEvents.events.every((event) => event.teamId === "GSW" || event.teamId === "LAL"));
 });
 
 test("historical validation and cache keys preserve every result-changing filter", async () => {
@@ -71,6 +77,16 @@ test("historical validation and cache keys preserve every result-changing filter
     provider.getPlayerGameLog({ playerId: "mock-jordan", season: "1990", dateFrom: "1991-04-22", dateTo: "1991-04-21" }),
     { code: "INVALID_ARGUMENT" },
   );
+  await assert.rejects(
+    provider.getPlayerGameLog({ playerId: "mock-jordan", season: "1990-91", dateFrom: "1991-02-29" }),
+    { code: "INVALID_ARGUMENT" },
+  );
+  await assert.rejects(
+    provider.getPlayerSeasonStats({ playerId: "mock-jordan", season: "1990-91", perMode: "Invalid" }),
+    { code: "INVALID_ARGUMENT" },
+  );
+  const leaders = await provider.getLeagueLeaders({ season: "1990-91", statCategory: "fg3m" });
+  assert.equal(leaders.statCategory, "FG3M");
 
   let calls = 0;
   const source = new MockProvider();

@@ -1,0 +1,1 @@
+{"resultSets":[{"name":"Standings","headers":["TeamID","TeamCity","TeamName","TeamAbbreviation","Conference","Division","WINS","LOSSES","WinPCT","ConferenceGamesBack","PlayoffRank","DivisionRank"],"rowSet":[[1610612738,"Boston","Celtics","BOS","East","Atlantic",64,18,0.78,0,1,1],[1610612747,"Los Angeles","Lakers","LAL","West","Pacific",47,35,0.573,17,8,3]]}]}

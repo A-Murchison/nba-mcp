@@ -1,0 +1,28 @@
+{
+  "game": {
+    "gameId": "0022300642",
+    "gameStatus": 3,
+    "gameStatusText": "Final",
+    "period": 4,
+    "gameClock": "PT00M00.00S",
+    "gameTimeUTC": "2024-01-27T17:00:00Z",
+    "homeTeam": {
+      "teamId": 1610612765,
+      "teamTricode": "DET",
+      "teamCity": "Detroit",
+      "teamName": "Pistons",
+      "score": 104,
+      "statistics": { "reboundsTotal": 43, "assists": 24 },
+      "players": [{ "personId": 202711, "name": "Bojan Bogdanovic", "firstName": "Bojan", "familyName": "Bogdanovic", "position": "SF", "jerseyNum": "44", "status": "ACTIVE", "starter": true, "played": true, "statistics": { "minutes": "PT35M36.98S", "points": 30, "reboundsTotal": 3, "assists": 3, "steals": 1, "blocks": 0, "turnovers": 2, "plusMinusPoints": 12 } }]
+    },
+    "awayTeam": {
+      "teamId": 1610612764,
+      "teamTricode": "WAS",
+      "teamCity": "Washington",
+      "teamName": "Wizards",
+      "score": 118,
+      "statistics": { "reboundsTotal": 46, "assists": 29 },
+      "players": [{ "personId": 1630166, "name": "Deni Avdija", "firstName": "Deni", "familyName": "Avdija", "position": "SF", "jerseyNum": "8", "status": "ACTIVE", "starter": true, "played": true, "statistics": { "minutes": "PT23M51.00S", "points": 10, "reboundsTotal": 5, "assists": 2, "steals": 0, "blocks": 1, "turnovers": 0, "plusMinusPoints": 18 } }]
+    }
+  }
+}

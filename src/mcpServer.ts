@@ -12,6 +12,13 @@ import { createProvider } from "./providers/index.js";
 import { ProviderError } from "./providers/ProviderError.js";
 
 const SERVER_NAME = "nba-mcp";
+const seasonSchema = z.string().regex(/^\d{4}-\d{2}$/).describe("NBA season in YYYY-YY format, for example 2023-24.");
+const seasonTypeSchema = z.enum(["Regular Season", "Playoffs"]).optional().describe("Competition phase. Defaults to Regular Season.");
+const perModeSchema = z.enum(["PerGame", "Totals"]).optional().describe("Aggregate presentation. Defaults to PerGame.");
+const pageSchema = {
+  limit: z.number().int().positive().max(100).optional().describe("Maximum number of results. Defaults to 100; max 100."),
+  cursor: z.string().min(1).optional().describe("Opaque cursor returned by a previous response."),
+};
 const require = createRequire(import.meta.url);
 const { version: SERVER_VERSION } = require("../package.json") as { version: string };
 
@@ -65,8 +72,9 @@ export async function buildServerCapabilities(provider: DataProvider): Promise<S
     liveUpdateFrequencySeconds: providerCapabilities.updateFrequencySeconds,
     knownLimitations: [
       "The nba.com adapter depends on public upstream endpoints and may be blocked, rate-limited, or changed without notice.",
-      "nba.com schedule lookups use the public gamecard feed for current and upcoming dates; player search is unavailable with that provider.",
-      "Betting, odds, fantasy projections, shot charts, and historical analytics are unavailable.",
+      "nba.com schedule lookups use the CDN season schedule rather than the blocked core-api.nba.com gamecard feed; player search is unavailable with that provider.",
+      "Historical Stats endpoints and CDN game archives are public upstream services that can be rate-limited, changed, or have partial coverage.",
+      "Betting, odds, fantasy projections, shot charts, and generated analytics are unavailable.",
       "Live freshness depends on the active provider; live responses are cached only for the configured short TTL.",
     ],
   };
@@ -245,6 +253,78 @@ export function createNbaMcpServer(config: Config): McpServer {
           ...(limit ? { limit } : {}),
         }),
       ),
+  );
+
+  server.registerTool(
+    "get_player_season_stats",
+    { title: "Get player season stats", description: "Return traditional player statistics for a historical NBA season.", inputSchema: { player_id: z.string().min(1).describe("Canonical NBA player ID."), season: seasonSchema, season_type: seasonTypeSchema, per_mode: perModeSchema } },
+    async ({ player_id, season, season_type, per_mode }) => {
+      if (!provider.capabilities.supportsPlayerSeasonStats) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical player season statistics are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getPlayerSeasonStats({ playerId: player_id, season, ...(season_type ? { seasonType: season_type } : {}), ...(per_mode ? { perMode: per_mode } : {}) }));
+    },
+  );
+
+  server.registerTool(
+    "get_player_game_log",
+    { title: "Get player game log", description: "Return paginated final games from a player's historical season.", inputSchema: { player_id: z.string().min(1).describe("Canonical NBA player ID."), season: seasonSchema, season_type: seasonTypeSchema, date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Inclusive YYYY-MM-DD date filter."), date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Inclusive YYYY-MM-DD date filter."), ...pageSchema } },
+    async ({ player_id, season, season_type, date_from, date_to, limit, cursor }) => {
+      if (!provider.capabilities.supportsPlayerGameLogs) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical player game logs are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getPlayerGameLog({ playerId: player_id, season, ...(season_type ? { seasonType: season_type } : {}), ...(date_from ? { dateFrom: date_from } : {}), ...(date_to ? { dateTo: date_to } : {}), ...(limit ? { limit } : {}), ...(cursor ? { cursor } : {}) }));
+    },
+  );
+
+  server.registerTool(
+    "get_team_season_stats",
+    { title: "Get team season stats", description: "Return traditional team statistics for a historical NBA season.", inputSchema: { team_id: z.string().min(1).describe("Canonical team abbreviation or NBA team ID."), season: seasonSchema, season_type: seasonTypeSchema, per_mode: perModeSchema } },
+    async ({ team_id, season, season_type, per_mode }) => {
+      if (!provider.capabilities.supportsTeamSeasonStats) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical team season statistics are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getTeamSeasonStats({ teamId: team_id, season, ...(season_type ? { seasonType: season_type } : {}), ...(per_mode ? { perMode: per_mode } : {}) }));
+    },
+  );
+
+  server.registerTool(
+    "get_team_game_log",
+    { title: "Get team game log", description: "Return paginated final games from a team's historical season.", inputSchema: { team_id: z.string().min(1).describe("Canonical team abbreviation or NBA team ID."), season: seasonSchema, season_type: seasonTypeSchema, date_from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Inclusive YYYY-MM-DD date filter."), date_to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().describe("Inclusive YYYY-MM-DD date filter."), ...pageSchema } },
+    async ({ team_id, season, season_type, date_from, date_to, limit, cursor }) => {
+      if (!provider.capabilities.supportsTeamGameLogs) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical team game logs are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getTeamGameLog({ teamId: team_id, season, ...(season_type ? { seasonType: season_type } : {}), ...(date_from ? { dateFrom: date_from } : {}), ...(date_to ? { dateTo: date_to } : {}), ...(limit ? { limit } : {}), ...(cursor ? { cursor } : {}) }));
+    },
+  );
+
+  server.registerTool(
+    "get_league_leaders",
+    { title: "Get league leaders", description: "Return paginated ranked traditional-stat leaders for a historical season.", inputSchema: { season: seasonSchema, season_type: seasonTypeSchema, per_mode: perModeSchema, stat_category: z.string().min(1).describe("Supported traditional stat category, such as PTS or REB."), ...pageSchema } },
+    async ({ season, season_type, per_mode, stat_category, limit, cursor }) => {
+      if (!provider.capabilities.supportsLeagueLeaders) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical league leaders are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getLeagueLeaders({ season, statCategory: stat_category, ...(season_type ? { seasonType: season_type } : {}), ...(per_mode ? { perMode: per_mode } : {}), ...(limit ? { limit } : {}), ...(cursor ? { cursor } : {}) }));
+    },
+  );
+
+  server.registerTool(
+    "get_league_standings",
+    { title: "Get league standings", description: "Return final NBA standings for a historical season.", inputSchema: { season: seasonSchema, season_type: seasonTypeSchema } },
+    async ({ season, season_type }) => {
+      if (!provider.capabilities.supportsHistoricalStandings) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical league standings are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getLeagueStandings({ season, ...(season_type ? { seasonType: season_type } : {}) }));
+    },
+  );
+
+  server.registerTool(
+    "get_historical_game_box_score",
+    { title: "Get historical game box score", description: "Return the final box score for an archived NBA game. Archive coverage is partial.", inputSchema: { game_id: z.string().trim().min(1).describe("Canonical NBA game ID.") } },
+    async ({ game_id }) => {
+      if (!provider.capabilities.supportsHistoricalBoxScores) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical game box scores are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getHistoricalGameBoxScore(game_id));
+    },
+  );
+
+  server.registerTool(
+    "get_historical_game_events",
+    { title: "Get historical game events", description: "Return paginated archived play-by-play events. Archive coverage is partial.", inputSchema: { game_id: z.string().trim().min(1).describe("Canonical NBA game ID."), ...pageSchema } },
+    async ({ game_id, limit, cursor }) => {
+      if (!provider.capabilities.supportsHistoricalPlayByPlay) return errorToolResult(errorResponse("UNSUPPORTED_CAPABILITY", "Historical game events are not available from the configured provider.", { provider: provider.name }));
+      return handleTool(provider, () => provider.getHistoricalGameEvents({ gameId: game_id, ...(limit ? { limit } : {}), ...(cursor ? { cursor } : {}) }));
+    },
   );
 
   return server;

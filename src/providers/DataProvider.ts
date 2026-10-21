@@ -55,14 +55,14 @@ export interface HistoricalSeasonInput {
 
 export interface GetPlayerSeasonStatsInput extends HistoricalSeasonInput { playerId: string; }
 export interface GetTeamSeasonStatsInput extends HistoricalSeasonInput { teamId: string; }
-export interface GetPlayerGameLogInput extends HistoricalSeasonInput {
+export interface GetPlayerGameLogInput extends Omit<HistoricalSeasonInput, "perMode"> {
   playerId: string;
   dateFrom?: string;
   dateTo?: string;
   limit?: number;
   cursor?: string;
 }
-export interface GetTeamGameLogInput extends HistoricalSeasonInput {
+export interface GetTeamGameLogInput extends Omit<HistoricalSeasonInput, "perMode"> {
   teamId: string;
   dateFrom?: string;
   dateTo?: string;

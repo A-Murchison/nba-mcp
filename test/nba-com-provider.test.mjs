@@ -7,7 +7,7 @@ import { ProviderError } from "../dist/providers/ProviderError.js";
 
 const fixtureDirectory = new URL("./fixtures/nba-com/", import.meta.url);
 const fixtures = Object.fromEntries(await Promise.all(
-  ["scoreboard", "gamecard", "boxscore", "playbyplay", "roster", "player-dashboard", "player-game-log", "player-info", "team-dashboard", "team-game-log", "league-leaders"].map(async (name) => [
+  ["scoreboard", "gamecard", "boxscore", "playbyplay", "historical-boxscore", "historical-playbyplay", "roster", "player-dashboard", "player-game-log", "player-info", "team-dashboard", "team-game-log", "league-leaders", "league-standings"].map(async (name) => [
     name,
     await readFile(new URL(`${name}.json`, fixtureDirectory), "utf8"),
   ]),
@@ -17,7 +17,9 @@ function fixtureFetch(input) {
   const url = String(input);
   const fixture = url.includes("todaysScoreboard") ? fixtures.scoreboard
     : url.includes("scheduleLeagueV2_1") ? fixtures.gamecard
+    : url.includes("boxscore_0022300642") ? fixtures["historical-boxscore"]
     : url.includes("boxscore_") ? fixtures.boxscore
+    : url.includes("playbyplay_0022300642") ? fixtures["historical-playbyplay"]
     : url.includes("playbyplay_") ? fixtures.playbyplay
     : url.includes("commonteamroster") ? fixtures.roster
     : url.includes("playerdashboardbygeneralsplits") ? fixtures["player-dashboard"]
@@ -26,6 +28,7 @@ function fixtureFetch(input) {
     : url.includes("teamdashboardbygeneralsplits") ? fixtures["team-dashboard"]
     : url.includes("teamgamelog") ? fixtures["team-game-log"]
     : url.includes("leagueleaders") ? fixtures["league-leaders"]
+    : url.includes("leaguestandingsv3") ? fixtures["league-standings"]
     : undefined;
   return Promise.resolve(new Response(fixture ?? "not found", { status: fixture ? 200 : 404 }));
 }
@@ -42,8 +45,8 @@ test("NbaComProvider uses the CDN scoreboard for fixture-backed live games and s
   assert.equal(live.games[0].status.clock, "00:00");
   assert.equal(live.games[0].homeTeam.id, "1610612738");
 
-  // Use a timezone whose local date differs from the fixture date when this test runs on 2026-10-20.
-  const todays = await nba.getTodaysGames({ date: "2026-10-20", timezone: "America/Adak" });
+  // A non-current explicit date uses the season schedule.
+  const todays = await nba.getTodaysGames({ date: "2026-10-20", timezone: "UTC" });
   assert.equal(todays.date, "2026-10-20");
   assert.equal(todays.games.length, 1);
   assert.equal(todays.games[0].date, "2026-10-20");
@@ -83,6 +86,13 @@ test("NbaComProvider uses the CDN scoreboard first with the configured browser h
   assert.equal(cdnHeaders["Sec-Fetch-Site"], "same-site");
   assert.equal(cdnHeaders.Priority, "u=4");
   assert.equal(cdnHeaders["User-Agent"], "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0");
+
+  requests.length = 0;
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "UTC" }).format(new Date());
+  const explicitToday = await nba.getTodaysGames({ date: today, timezone: "UTC" });
+  assert.equal(explicitToday.games[0].status.state, "halftime");
+  assert.equal(requests.some((request) => request.url.includes("todaysScoreboard")), true);
+  assert.equal(requests.some((request) => request.url.includes("scheduleLeagueV2_1")), false);
 });
 
 test("NbaComProvider normalizes fixture-backed box score, play-by-play, and roster responses", async () => {
@@ -127,7 +137,7 @@ test("NbaComProvider uses CDN browser headers and retries rate-limited schedule 
   const nba = new NbaComProvider(request);
 
   await nba.getLiveGames();
-  await nba.getTodaysGames({ date: "2026-10-20", timezone: "America/Adak" });
+  await nba.getTodaysGames({ date: "2026-10-20", timezone: "UTC" });
   await nba.getTeamRoster("BOS");
   await nba.getGamesThisWeek({ date: "2026-10-20" });
 
@@ -164,7 +174,7 @@ test("NbaComProvider normalizes historical player season stats with NBA Stats he
   assert.equal(response.meta.dataset, "stats.nba.com/playerdashboardbygeneralsplits");
   assert.equal(response.meta.seasonType, "Regular Season");
   assert.equal(response.meta.coverage, "unknown");
-  assert.match(response.meta.coverageNote, /not been live-verified/);
+  assert.match(response.meta.coverageNote, /availability and historical coverage can change/);
   assert.equal(nba.capabilities.supportsPlayerSeasonStats, true);
 
   const dashboard = requests.find((request) => request.url.includes("playerdashboardbygeneralsplits"));
@@ -239,6 +249,12 @@ test("NbaComProvider normalizes and locally paginates historical player game log
     nba.getPlayerGameLog({ playerId: "2544", season: "2023-24", dateFrom: "2024-02-01", dateTo: "2024-01-01" }),
     (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
   );
+  const requestsBeforeInvalidDate = requests.length;
+  await assert.rejects(
+    nba.getPlayerGameLog({ playerId: "2544", season: "2023-24", dateFrom: "2024-02-30" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+  assert.equal(requests.length, requestsBeforeInvalidDate, "invalid calendar dates must not reach the upstream provider");
 });
 
 test("NbaComProvider normalizes historical team season stats with canonical team IDs", async () => {
@@ -336,6 +352,134 @@ test("NbaComProvider normalizes and paginates historical league leaders", async 
   await assert.rejects(
     nba.getLeagueLeaders({ season: "2023-24", statCategory: "BAD" }),
     (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+
+  // NBA Stats has returned an HTML challenge page from this endpoint. Keep the
+  // advertised capability, but surface that transient upstream response as a
+  // typed provider failure instead of leaking a JSON parser error.
+  const htmlResponse = new NbaComProvider(() => Promise.resolve(new Response("<html>challenge</html>", { status: 200 })));
+  await assert.rejects(
+    htmlResponse.getLeagueLeaders({ season: "2023-24", statCategory: "PTS" }),
+    (error) => error instanceof ProviderError && error.code === "PROVIDER_UNAVAILABLE",
+  );
+});
+
+test("NbaComProvider normalizes historical league standings", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+  const response = await nba.getLeagueStandings({ season: "2023-24" });
+  assert.equal(response.standings.length, 2);
+  assert.deepEqual(response.standings[0], { team: { id: "1610612738", abbreviation: "BOS", name: "Boston Celtics", city: "Boston" }, conference: "East", division: "Atlantic", wins: 64, losses: 18, winningPercentage: 0.78, gamesBehind: 0, conferenceRank: 1, divisionRank: 1 });
+  assert.equal(response.meta.dataset, "stats.nba.com/leaguestandingsv3");
+  assert.equal(nba.capabilities.supportsHistoricalStandings, true);
+
+  const request = requests.find((candidate) => candidate.url.includes("leaguestandingsv3"));
+  assert.ok(request.url.includes("LeagueID=00"));
+  assert.ok(request.url.includes("Season=2023-24"));
+  assert.ok(request.url.includes("SeasonType=Regular+Season"));
+  assert.equal(request.headers.Accept, "application/json, text/plain, */*");
+  assert.equal(request.headers["Accept-Language"], "en-US,en;q=0.9");
+  assert.equal(request.headers.Origin, "https://www.nba.com");
+  assert.equal(request.headers.Referer, "https://www.nba.com/");
+  assert.equal(request.headers["Sec-Fetch-Dest"], "empty");
+  assert.equal(request.headers["Sec-Fetch-Mode"], "cors");
+  assert.equal(request.headers["Sec-Fetch-Site"], "same-site");
+  assert.equal(request.headers.Priority, "u=4");
+  assert.equal(request.headers["User-Agent"], "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0");
+  assert.equal(request.headers["Cache-Control"], "no-cache");
+  assert.equal(request.headers.Pragma, "no-cache");
+  assert.equal(request.headers["x-nba-stats-origin"], "stats");
+  assert.equal(request.headers["x-nba-stats-token"], "true");
+  assert.equal("Cookie" in request.headers, false);
+  assert.equal("Host" in request.headers, false);
+
+  const historicalIdentity = new NbaComProvider(() => Promise.resolve(new Response(JSON.stringify({
+    resultSets: [{ name: "Standings", headers: ["TeamID", "TeamCity", "TeamName", "TeamAbbreviation", "WINS", "LOSSES"], rowSet: [[1610612751, "New Jersey", "Nets", "NJN", 22, 60]] }],
+  }))));
+  const legacyStandings = await historicalIdentity.getLeagueStandings({ season: "2011-12" });
+  assert.deepEqual(legacyStandings.standings[0].team, { id: "1610612751", abbreviation: "NJN", name: "New Jersey Nets", city: "New Jersey" });
+
+  await assert.rejects(
+    nba.getLeagueStandings({ season: "2023-24", seasonType: "Preseason" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+});
+
+test("NbaComProvider normalizes and paginates archived historical game detail", async () => {
+  const requests = [];
+  const nba = new NbaComProvider((input, init) => {
+    requests.push({ url: String(input), headers: init.headers });
+    return fixtureFetch(input);
+  });
+
+  const boxScore = await nba.getHistoricalGameBoxScore("0022300642");
+  assert.equal(boxScore.historicalGame.game.date, "2024-01-27");
+  assert.equal(boxScore.historicalGame.game.status.state, "final");
+  assert.equal(boxScore.historicalGame.boxScore.players[0].player.fullName, "Bojan Bogdanovic");
+  assert.equal(boxScore.meta.dataset, "cdn.nba.com/liveData/boxscore");
+  assert.equal(boxScore.meta.season, "2023-24");
+  assert.equal(boxScore.meta.coverage, "partial");
+
+  const lateGame = new NbaComProvider(() => Promise.resolve(new Response(
+    fixtures["historical-boxscore"].replace(
+      '"gameTimeUTC": "2024-01-27T17:00:00Z"',
+      '"gameTimeUTC": "2024-01-28T03:00:00Z", "gameTimeLocal": "2024-01-27T22:00:00-05:00"',
+    ),
+  )));
+  const lateGameBoxScore = await lateGame.getHistoricalGameBoxScore("0022300642");
+  assert.equal(lateGameBoxScore.historicalGame.game.date, "2024-01-27", "historical games use their local NBA date rather than the UTC date");
+
+  const events = await nba.getHistoricalGameEvents({ gameId: "0022300642", limit: 2, cursor: "1" });
+  assert.deepEqual(events.events.map((event) => event.eventId), ["685", "686"]);
+  assert.equal(events.events[1].scoreAway, 118);
+  assert.deepEqual(events.page, { limit: 2, hasMore: false, isBoundedResult: false });
+  assert.equal(events.meta.dataset, "cdn.nba.com/liveData/playbyplay");
+  assert.equal(events.meta.season, "2023-24");
+  assert.equal(nba.capabilities.supportsHistoricalBoxScores, true);
+  assert.equal(nba.capabilities.supportsHistoricalPlayByPlay, true);
+
+  const archiveRequests = requests.filter((request) => request.url.includes("0022300642"));
+  assert.equal(archiveRequests.length, 3);
+  for (const request of archiveRequests) {
+    assert.equal(request.headers.Accept, "*/*");
+    assert.equal(request.headers["Accept-Language"], "en-US,en;q=0.9");
+    assert.equal(request.headers.Origin, "https://www.nba.com");
+    assert.equal(request.headers.Referer, "https://www.nba.com/");
+    assert.equal(request.headers["Sec-Fetch-Dest"], "empty");
+    assert.equal(request.headers["Sec-Fetch-Mode"], "cors");
+    assert.equal(request.headers["Sec-Fetch-Site"], "same-site");
+    assert.equal(request.headers.Priority, "u=4");
+    assert.equal(request.headers["User-Agent"], "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:150.0) Gecko/20100101 Firefox/150.0");
+    assert.equal("Cookie" in request.headers, false);
+    assert.equal("Host" in request.headers, false);
+  }
+
+  await assert.rejects(
+    nba.getHistoricalGameEvents({ gameId: "0022300642", cursor: "invalid" }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+  const requestsBeforeBlankGameId = requests.length;
+  await assert.rejects(
+    nba.getHistoricalGameBoxScore("   "),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+  await assert.rejects(
+    nba.getHistoricalGameEvents({ gameId: "   " }),
+    (error) => error instanceof ProviderError && error.code === "INVALID_ARGUMENT",
+  );
+  assert.equal(requests.length, requestsBeforeBlankGameId, "blank archive game IDs must not reach the upstream provider");
+
+  const nonFinal = new NbaComProvider((input) => Promise.resolve(new Response(
+    String(input).includes("boxscore_")
+      ? fixtures["historical-boxscore"].replace('"gameStatus": 3', '"gameStatus": 2')
+      : fixtures["historical-playbyplay"],
+  )));
+  await assert.rejects(
+    nonFinal.getHistoricalGameEvents({ gameId: "0022300642" }),
+    (error) => error instanceof ProviderError && error.code === "DATA_UNAVAILABLE",
   );
 });
 

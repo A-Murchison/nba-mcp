@@ -10,8 +10,9 @@ const mockConfig = {
   provider: "mock",
   cacheTtlLiveSeconds: 10,
   cacheTtlRosterSeconds: 86_400,
+  cacheTtlHistoricalSeconds: 604_800,
+  cacheTtlHistoricalLogSeconds: 86_400,
   timezone: "America/New_York",
-  logLevel: "error",
 };
 
 async function createClient() {
@@ -51,10 +52,18 @@ test("all MCP tools expose the normalized mock-provider response contract", asyn
       "get_game_box_score",
       "get_game_status",
       "get_games_this_week",
+      "get_historical_game_box_score",
+      "get_historical_game_events",
+      "get_league_leaders",
+      "get_league_standings",
       "get_live_games",
+      "get_player_game_log",
+      "get_player_season_stats",
       "get_recent_game_events",
       "get_server_capabilities",
+      "get_team_game_log",
       "get_team_roster",
+      "get_team_season_stats",
       "get_todays_games",
       "search_players",
       "search_teams",
@@ -65,6 +74,7 @@ test("all MCP tools expose the normalized mock-provider response contract", asyn
   assert.equal(capabilities.serverName, "nba-mcp");
   assert.equal(capabilities.activeProvider, "mock");
   assert.equal(capabilities.providerCapabilities.supportsLiveScores, true);
+  assert.equal(capabilities.providerCapabilities.supportsHistoricalBoxScores, true);
 
   const live = structured(await connection.client.callTool({ name: "get_live_games", arguments: {} }));
   assert.equal(live.games[0].gameId, "mock-live-001");
@@ -124,6 +134,59 @@ test("all MCP tools expose the normalized mock-provider response contract", asyn
     arguments: { query: "tatum", active_only: true, limit: 1 },
   }));
   assert.deepEqual(players.players.map((player) => player.fullName), ["Jayson Tatum"]);
+
+  const playerSeason = structured(await connection.client.callTool({
+    name: "get_player_season_stats",
+    arguments: { player_id: "mock-jordan", season: "1990-91", per_mode: "Totals" },
+  }));
+  assert.equal(playerSeason.playerSeasonStats.stats.points, 2580);
+
+  const playerLog = structured(await connection.client.callTool({
+    name: "get_player_game_log",
+    arguments: { player_id: "mock-jordan", season: "1990-91", limit: 1 },
+  }));
+  assert.equal(playerLog.games.length, 1);
+  assert.equal(playerLog.page.hasMore, true);
+
+  const teamSeason = structured(await connection.client.callTool({
+    name: "get_team_season_stats",
+    arguments: { team_id: "CHI", season: "1990-91" },
+  }));
+  assert.equal(teamSeason.teamSeasonStats.stats.wins, 61);
+
+  const teamLog = structured(await connection.client.callTool({
+    name: "get_team_game_log",
+    arguments: { team_id: "CHI", season: "1990-91", limit: 1 },
+  }));
+  assert.equal(teamLog.games[0].team.id, "CHI");
+  assert.equal(teamLog.games[0].stats.points, teamLog.games[0].game.homeTeam.score);
+
+  const leaders = structured(await connection.client.callTool({
+    name: "get_league_leaders",
+    arguments: { season: "1990-91", stat_category: "PTS" },
+  }));
+  assert.equal(leaders.leaders[0].player.fullName, "Michael Jordan");
+
+  const standings = structured(await connection.client.callTool({
+    name: "get_league_standings",
+    arguments: { season: "1990-91" },
+  }));
+  assert.equal(standings.standings[0].team.id, "CHI");
+
+  const historicalBox = structured(await connection.client.callTool({
+    name: "get_historical_game_box_score",
+    arguments: { game_id: "mock-final-001" },
+  }));
+  assert.equal(historicalBox.historicalGame.game.gameId, "mock-final-001");
+  assert.deepEqual(historicalBox.historicalGame.boxScore.teams.map((entry) => entry.team.id), ["GSW", "LAL"]);
+  assert.equal(historicalBox.historicalGame.boxScore.teams[0].points, historicalBox.historicalGame.game.homeTeam.score);
+
+  const historicalEvents = structured(await connection.client.callTool({
+    name: "get_historical_game_events",
+    arguments: { game_id: "mock-final-001", limit: 1 },
+  }));
+  assert.equal(historicalEvents.events[0].gameId, "mock-final-001");
+  assert.equal(historicalEvents.events[0].teamId, "GSW");
 
   const notFound = await connection.client.callTool({
     name: "get_game_status",

@@ -1,7 +1,7 @@
 import type { ProviderCapabilities } from "../domain/capabilities.js";
 import type {
-  BoxScore, Game, GameBoxScoreResponse, GamesThisWeekResponse, GameStatus, GameStatusResponse, LiveGame, LiveGamesResponse,
-  LeagueLeader, LeagueLeadersResponse, Player, PlayerBoxScore, PlayerGameLogResponse, PlayerSeasonStatsResponse, PlayByPlayEvent, RecentGameEventsResponse, ResponseMetadata, Roster,
+  BoxScore, Game, GameBoxScoreResponse, GamesThisWeekResponse, GameStatus, GameStatusResponse, HistoricalGameBoxScoreResponse, HistoricalGameEventsResponse, LiveGame, LiveGamesResponse,
+  LeagueLeader, LeagueLeadersResponse, LeagueStandingsResponse, Player, PlayerBoxScore, PlayerGameLogResponse, PlayerSeasonStatsResponse, PlayByPlayEvent, RecentGameEventsResponse, ResponseMetadata, Roster, StandingsEntry,
   SearchPlayersResponse, SearchTeamsResponse, Team, TeamBoxScore, TeamGameLogResponse, TeamRosterResponse, TeamSeasonStatsResponse, TodaysGamesResponse, TraditionalStats,
 } from "../domain/models.js";
 import type { DataProvider, GetGamesThisWeekInput, GetHistoricalGameEventsInput, GetLeagueLeadersInput, GetLeagueStandingsInput, GetPlayerGameLogInput, GetPlayerSeasonStatsInput, GetRecentGameEventsInput, GetTeamGameLogInput, GetTeamSeasonStatsInput, GetTodaysGamesInput, SearchPlayersInput } from "./DataProvider.js";
@@ -48,7 +48,14 @@ function text(value: unknown): string | undefined {
   if (typeof value === "number" && Number.isFinite(value)) return String(value);
   return undefined;
 }
-function number(value: unknown): number | undefined { return typeof value === "number" && Number.isFinite(value) ? value : undefined; }
+function number(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return undefined;
+}
 function requiredText(value: unknown, fallback = ""): string { return text(value) ?? fallback; }
 function requiredNumber(value: unknown, fallback = 0): number { return number(value) ?? fallback; }
 function scheduleDate(value: unknown, fallback: string): string {
@@ -131,7 +138,7 @@ function historicalPlayerInput(input: GetPlayerSeasonStatsInput | GetPlayerGameL
   if (!isSeasonLabel(input.season)) throw new ProviderError("INVALID_ARGUMENT", "season must use consecutive YYYY-YY years.");
   const seasonType = input.seasonType ?? "Regular Season";
   if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
-  const perMode = input.perMode ?? "PerGame";
+  const perMode = ("perMode" in input ? input.perMode : undefined) ?? "PerGame";
   if (perMode !== "PerGame" && perMode !== "Totals") throw new ProviderError("INVALID_ARGUMENT", "perMode must be PerGame or Totals.");
   return { playerId, season: input.season, seasonType, perMode };
 }
@@ -141,7 +148,7 @@ function historicalTeamInput(input: GetTeamSeasonStatsInput | GetTeamGameLogInpu
   if (!isSeasonLabel(input.season)) throw new ProviderError("INVALID_ARGUMENT", "season must use consecutive YYYY-YY years.");
   const seasonType = input.seasonType ?? "Regular Season";
   if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
-  const perMode = input.perMode ?? "PerGame";
+  const perMode = ("perMode" in input ? input.perMode : undefined) ?? "PerGame";
   if (perMode !== "PerGame" && perMode !== "Totals") throw new ProviderError("INVALID_ARGUMENT", "perMode must be PerGame or Totals.");
   return { team, season: input.season, seasonType, perMode };
 }
@@ -158,8 +165,12 @@ function historicalLeagueLeadersInput(input: GetLeagueLeadersInput): { season: s
 }
 function isoDate(value: string | undefined, name: string): string | undefined {
   if (value === undefined) return undefined;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())) {
-    throw new ProviderError("INVALID_ARGUMENT", `${name} must use YYYY-MM-DD format.`);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) throw new ProviderError("INVALID_ARGUMENT", `${name} must use a valid YYYY-MM-DD date.`);
+  const [year, month, day] = match.slice(1).map(Number);
+  const date = new Date(Date.UTC(year!, month! - 1, day!));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month! - 1 || date.getUTCDate() !== day) {
+    throw new ProviderError("INVALID_ARGUMENT", `${name} must use a valid YYYY-MM-DD date.`);
   }
   return value;
 }
@@ -260,11 +271,28 @@ function playerFromLive(rawValue: unknown, teamId: string): Player {
 }
 
 /** Adapter for public nba.com live JSON and stats endpoints. No API key is required. */
+function boxScoreFromLiveGame(rawGame: JsonObject, gameId: string): BoxScore {
+  const status = toStatus(rawGame);
+  const teams = [object(rawGame.homeTeam), object(rawGame.awayTeam)];
+  const teamScores: TeamBoxScore[] = teams.map((raw) => {
+    const statistics = object(raw.statistics);
+    return { team: toTeam(raw), points: requiredNumber(raw.score), rebounds: requiredNumber(statistics.reboundsTotal), assists: requiredNumber(statistics.assists), ...(stat(statistics, "steals") !== undefined ? { steals: requiredNumber(statistics.steals) } : {}), ...(stat(statistics, "blocks") !== undefined ? { blocks: requiredNumber(statistics.blocks) } : {}), ...(stat(statistics, "turnoversTotal") !== undefined ? { turnovers: requiredNumber(statistics.turnoversTotal) } : {}), ...(stat(statistics, "fieldGoalsMade") !== undefined ? { fieldGoalsMade: requiredNumber(statistics.fieldGoalsMade) } : {}), ...(stat(statistics, "fieldGoalsAttempted") !== undefined ? { fieldGoalsAttempted: requiredNumber(statistics.fieldGoalsAttempted) } : {}), ...(stat(statistics, "threePointersMade") !== undefined ? { threePointersMade: requiredNumber(statistics.threePointersMade) } : {}), ...(stat(statistics, "threePointersAttempted") !== undefined ? { threePointersAttempted: requiredNumber(statistics.threePointersAttempted) } : {}), ...(stat(statistics, "freeThrowsMade") !== undefined ? { freeThrowsMade: requiredNumber(statistics.freeThrowsMade) } : {}), ...(stat(statistics, "freeThrowsAttempted") !== undefined ? { freeThrowsAttempted: requiredNumber(statistics.freeThrowsAttempted) } : {}) };
+  });
+  const players: PlayerBoxScore[] = teams.flatMap((team) => array(team.players).map((rawValue) => {
+    const raw = object(rawValue); const statistics = object(raw.statistics); const teamId = requiredText(team.teamId);
+    return { player: playerFromLive(raw, teamId), teamId, starter: raw.starter === true || raw.starter === "1", played: raw.played === true || raw.played === "1", ...(text(statistics.minutes) ? { minutes: displayClock(requiredText(statistics.minutes)) } : {}), points: requiredNumber(statistics.points), rebounds: requiredNumber(statistics.reboundsTotal), assists: requiredNumber(statistics.assists), ...(stat(statistics, "steals") !== undefined ? { steals: requiredNumber(statistics.steals) } : {}), ...(stat(statistics, "blocks") !== undefined ? { blocks: requiredNumber(statistics.blocks) } : {}), ...(stat(statistics, "turnovers") !== undefined ? { turnovers: requiredNumber(statistics.turnovers) } : {}), ...(stat(statistics, "plusMinusPoints") !== undefined ? { plusMinus: requiredNumber(statistics.plusMinusPoints) } : {}) };
+  }));
+  return { gameId, status, teams: teamScores, players };
+}
+function eventsFromLiveGame(rawGame: JsonObject, gameId: string): PlayByPlayEvent[] {
+  return array(rawGame.actions).map((value) => { const raw = object(value); return { eventId: String(raw.actionNumber ?? raw.actionId ?? ""), gameId, period: requiredNumber(raw.period), ...(text(raw.clock) ? { clock: displayClock(requiredText(raw.clock)) } : {}), ...(number(raw.orderNumber) !== undefined ? { sequenceNumber: requiredNumber(raw.orderNumber) } : {}), ...(text(raw.teamId) ? { teamId: requiredText(raw.teamId) } : {}), ...(text(raw.personId) && requiredText(raw.personId) !== "0" ? { playerId: requiredText(raw.personId) } : {}), eventType: requiredText(raw.actionType, "event"), description: requiredText(raw.description, requiredText(raw.actionType, "NBA game event")), ...(number(raw.scoreHome) !== undefined ? { scoreHome: requiredNumber(raw.scoreHome) } : {}), ...(number(raw.scoreAway) !== undefined ? { scoreAway: requiredNumber(raw.scoreAway) } : {}), ...(text(raw.timeActual) ? { occurredAt: requiredText(raw.timeActual) } : {}) }; });
+}
+
 export class NbaComProvider implements DataProvider {
   readonly name = "nba-com";
 
   constructor(private readonly request: typeof fetch = fetch) {}
-  readonly capabilities: ProviderCapabilities = { supportsLiveScores: true, supportsLiveBoxScores: true, supportsPlayByPlay: true, supportsCurrentRosters: true, supportsInjuries: false, supportsHistoricalStats: true, supportsPlayerSeasonStats: true, supportsPlayerGameLogs: true, supportsTeamSeasonStats: true, supportsTeamGameLogs: true, supportsLeagueLeaders: true, supportsHistoricalStandings: false, supportsHistoricalBoxScores: false, supportsHistoricalPlayByPlay: false, updateFrequencySeconds: 10 };
+  readonly capabilities: ProviderCapabilities = { supportsLiveScores: true, supportsLiveBoxScores: true, supportsPlayByPlay: true, supportsCurrentRosters: true, supportsInjuries: false, supportsHistoricalStats: true, supportsPlayerSeasonStats: true, supportsPlayerGameLogs: true, supportsTeamSeasonStats: true, supportsTeamGameLogs: true, supportsLeagueLeaders: true, supportsHistoricalStandings: true, supportsHistoricalBoxScores: true, supportsHistoricalPlayByPlay: true, updateFrequencySeconds: 10 };
 
   private async getJson(url: string): Promise<{ data: JsonObject; latencyMs: number }> {
     const started = Date.now();
@@ -306,7 +334,32 @@ export class NbaComProvider implements DataProvider {
 
   private meta(latencyMs: number, live: boolean): ResponseMetadata { return { source: this.name, lastUpdated: new Date().toISOString(), dataFreshnessSeconds: 0, isLive: live, cacheStatus: "bypass", providerLatencyMs: latencyMs }; }
   private historicalMeta(latencyMs: number, season: string, seasonType: "Regular Season" | "Playoffs", dataset: string): ResponseMetadata {
-    return { ...this.meta(latencyMs, false), season, seasonType, dataset, coverage: "unknown", coverageNote: "Historical source coverage is fixture-validated but has not been live-verified." };
+    return { ...this.meta(latencyMs, false), season, seasonType, dataset, coverage: "unknown", coverageNote: "Public NBA Stats endpoint availability and historical coverage can change." };
+  }
+  private historicalGameMeta(latencyMs: number, dataset: string, gameDate?: string): ResponseMetadata {
+    const year = gameDate ? Number(gameDate.slice(0, 4)) : Number.NaN;
+    const month = gameDate ? Number(gameDate.slice(5, 7)) : Number.NaN;
+    // NBA seasons begin in the second half of a calendar year. Archive callers
+    // supply only a game ID, so derive the known season from the returned date.
+    const season = Number.isInteger(year) && Number.isInteger(month) && month >= 1 && month <= 12
+      ? `${month < 7 ? year - 1 : year}-${String((month < 7 ? year : year + 1) % 100).padStart(2, "0")}`
+      : undefined;
+    return { ...this.meta(latencyMs, false), dataset, ...(season ? { season } : {}), coverage: "partial", coverageNote: "The CDN archive was live-verified for 2023-24 regular-season and playoff games, but older tested game IDs were unavailable." };
+  }
+  private historicalGameId(gameId: string): string {
+    const normalized = gameId.trim();
+    if (!normalized) throw new ProviderError("INVALID_ARGUMENT", "gameId must not be empty.");
+    return normalized;
+  }
+  private archiveGameId(rawGame: JsonObject, requestedGameId: string): void {
+    if (requiredText(rawGame.gameId) !== requestedGameId) throw new ProviderError("DATA_UNAVAILABLE", `nba.com did not return the requested historical game '${requestedGameId}'.`);
+  }
+  private historicalGameDate(rawGame: JsonObject): string | undefined {
+    for (const value of [rawGame.gameDateEst, rawGame.gameDate, rawGame.gameTimeLocal, rawGame.gameTimeUTC]) {
+      const date = scheduleDate(value, "");
+      if (date) return date;
+    }
+    return undefined;
   }
   /** The CDN scoreboard is the primary source for the current NBA slate. */
   private async todaysSchedule(): Promise<{ games: Game[]; latencyMs: number }> {
@@ -338,8 +391,9 @@ export class NbaComProvider implements DataProvider {
   async getTodaysGames(input: GetTodaysGamesInput = {}): Promise<TodaysGamesResponse> {
     const timezone = input.timezone ?? "America/New_York";
     const date = input.date ?? new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
+    // The live CDN feed only exposes today, but callers may explicitly request
+    // today's date and still expect current scores and status.
     const currentDate = new Intl.DateTimeFormat("en-CA", { timeZone: timezone }).format(new Date());
-    // The live CDN feed only exposes today. The CDN season schedule serves other dates.
     const result = date === currentDate
       ? await this.todaysSchedule()
       : await this.schedule().then((schedule) => ({ games: this.gamesForDate(schedule.gameDates, date), latencyMs: schedule.latencyMs }));
@@ -376,25 +430,13 @@ export class NbaComProvider implements DataProvider {
 
   async getGameBoxScore(gameId: string): Promise<GameBoxScoreResponse> {
     const response = await this.getJson(`${LIVE_BASE_URL}/boxscore/boxscore_${encodeURIComponent(gameId)}.json`);
-    const rawGame = object(response.data.game);
-    const status = toStatus(rawGame);
-    const teams = [object(rawGame.homeTeam), object(rawGame.awayTeam)];
-    const teamScores: TeamBoxScore[] = teams.map((raw) => {
-      const statistics = object(raw.statistics);
-      return { team: toTeam(raw), points: requiredNumber(raw.score), rebounds: requiredNumber(statistics.reboundsTotal), assists: requiredNumber(statistics.assists), ...(stat(statistics, "steals") !== undefined ? { steals: requiredNumber(statistics.steals) } : {}), ...(stat(statistics, "blocks") !== undefined ? { blocks: requiredNumber(statistics.blocks) } : {}), ...(stat(statistics, "turnoversTotal") !== undefined ? { turnovers: requiredNumber(statistics.turnoversTotal) } : {}), ...(stat(statistics, "fieldGoalsMade") !== undefined ? { fieldGoalsMade: requiredNumber(statistics.fieldGoalsMade) } : {}), ...(stat(statistics, "fieldGoalsAttempted") !== undefined ? { fieldGoalsAttempted: requiredNumber(statistics.fieldGoalsAttempted) } : {}), ...(stat(statistics, "threePointersMade") !== undefined ? { threePointersMade: requiredNumber(statistics.threePointersMade) } : {}), ...(stat(statistics, "threePointersAttempted") !== undefined ? { threePointersAttempted: requiredNumber(statistics.threePointersAttempted) } : {}), ...(stat(statistics, "freeThrowsMade") !== undefined ? { freeThrowsMade: requiredNumber(statistics.freeThrowsMade) } : {}), ...(stat(statistics, "freeThrowsAttempted") !== undefined ? { freeThrowsAttempted: requiredNumber(statistics.freeThrowsAttempted) } : {}) };
-    });
-    const players: PlayerBoxScore[] = teams.flatMap((team) => array(team.players).map((rawValue) => {
-      const raw = object(rawValue); const statistics = object(raw.statistics); const teamId = requiredText(team.teamId);
-      return { player: playerFromLive(raw, teamId), teamId, starter: raw.starter === true, played: raw.played === true, ...(text(statistics.minutes) ? { minutes: displayClock(requiredText(statistics.minutes)) } : {}), points: requiredNumber(statistics.points), rebounds: requiredNumber(statistics.reboundsTotal), assists: requiredNumber(statistics.assists), ...(stat(statistics, "steals") !== undefined ? { steals: requiredNumber(statistics.steals) } : {}), ...(stat(statistics, "blocks") !== undefined ? { blocks: requiredNumber(statistics.blocks) } : {}), ...(stat(statistics, "turnovers") !== undefined ? { turnovers: requiredNumber(statistics.turnovers) } : {}), ...(stat(statistics, "plusMinusPoints") !== undefined ? { plusMinus: requiredNumber(statistics.plusMinusPoints) } : {}) };
-    }));
-    const boxScore: BoxScore = { gameId, status, teams: teamScores, players };
-    return { boxScore, meta: this.meta(response.latencyMs, isLive(status.state)) };
+    const boxScore = boxScoreFromLiveGame(object(response.data.game), gameId);
+    return { boxScore, meta: this.meta(response.latencyMs, isLive(boxScore.status.state)) };
   }
 
   async getRecentGameEvents(input: GetRecentGameEventsInput): Promise<RecentGameEventsResponse> {
     const response = await this.getJson(`${LIVE_BASE_URL}/playbyplay/playbyplay_${encodeURIComponent(input.gameId)}.json`);
-    const actions = array(object(response.data.game).actions).slice(-(input.limit ?? 10)).reverse();
-    const events: PlayByPlayEvent[] = actions.map((value) => { const raw = object(value); return { eventId: String(raw.actionNumber ?? raw.actionId ?? ""), gameId: input.gameId, period: requiredNumber(raw.period), ...(text(raw.clock) ? { clock: displayClock(requiredText(raw.clock)) } : {}), ...(number(raw.orderNumber) !== undefined ? { sequenceNumber: requiredNumber(raw.orderNumber) } : {}), ...(text(raw.teamId) ? { teamId: requiredText(raw.teamId) } : {}), ...(text(raw.personId) ? { playerId: requiredText(raw.personId) } : {}), eventType: requiredText(raw.actionType, "event"), description: requiredText(raw.description, requiredText(raw.actionType, "NBA game event")), ...(number(raw.scoreHome) !== undefined ? { scoreHome: requiredNumber(raw.scoreHome) } : {}), ...(number(raw.scoreAway) !== undefined ? { scoreAway: requiredNumber(raw.scoreAway) } : {}), ...(text(raw.timeActual) ? { occurredAt: requiredText(raw.timeActual) } : {}) }; });
+    const events = eventsFromLiveGame(object(response.data.game), input.gameId).slice(-(input.limit ?? 10)).reverse();
     return { gameId: input.gameId, events, meta: this.meta(response.latencyMs, true) };
   }
 
@@ -423,9 +465,6 @@ export class NbaComProvider implements DataProvider {
     throw new ProviderError("DATA_UNAVAILABLE", "nba.com player search is unavailable until an authoritative current-player directory is configured; search a team's roster instead.", {
       suggestedAlternatives: ["Use search_teams", "Use get_team_roster"],
     });
-  }
-  private historicalUnavailable(): never {
-    throw new ProviderError("UNSUPPORTED_CAPABILITY", "Historical NBA data has not been validated for the nba.com provider.");
   }
   async getPlayerSeasonStats(input: GetPlayerSeasonStatsInput): Promise<PlayerSeasonStatsResponse> {
     const { playerId, season, seasonType, perMode } = historicalPlayerInput(input);
@@ -519,9 +558,73 @@ export class NbaComProvider implements DataProvider {
     const hasMore = nextOffset < leaders.length;
     return { season, seasonType, perMode, statCategory, leaders: items, page: { limit, hasMore, isBoundedResult: hasMore, ...(hasMore ? { nextCursor: String(nextOffset) } : {}) }, meta: this.historicalMeta(response.latencyMs, season, seasonType, "stats.nba.com/leagueleaders") };
   }
-  async getLeagueStandings(_input: GetLeagueStandingsInput) { return this.historicalUnavailable(); }
-  async getHistoricalGameBoxScore(_gameId: string) { return this.historicalUnavailable(); }
-  async getHistoricalGameEvents(_input: GetHistoricalGameEventsInput) { return this.historicalUnavailable(); }
+  async getLeagueStandings(input: GetLeagueStandingsInput): Promise<LeagueStandingsResponse> {
+    if (!isSeasonLabel(input.season)) throw new ProviderError("INVALID_ARGUMENT", "season must use consecutive YYYY-YY years.");
+    const seasonType = input.seasonType ?? "Regular Season";
+    if (seasonType !== "Regular Season" && seasonType !== "Playoffs") throw new ProviderError("INVALID_ARGUMENT", "seasonType must be Regular Season or Playoffs.");
+    const response = await this.getJson(statsUrl("leaguestandingsv3", { LeagueID: "00", Season: input.season, SeasonType: seasonType }));
+    const table = statsTable(response.data, "Standings");
+    const standings: StandingsEntry[] = table.rows.map((row) => {
+      const id = requiredText(statsValue(table, row, "TeamID"));
+      const abbreviation = text(statsValue(table, row, "TeamAbbreviation")) ?? id;
+      const city = text(statsValue(table, row, "TeamCity"));
+      const name = text(statsValue(table, row, "TeamName"));
+      // Standings are historical: retain the season's city, name, and tricode
+      // instead of replacing a relocated franchise with its current identity.
+      const canonical = canonicalNbaTeam(id);
+      const team: Team = {
+        id,
+        abbreviation,
+        name: [city, name].filter(Boolean).join(" ") || canonical?.name || abbreviation,
+        ...(city ? { city } : canonical?.city ? { city: canonical.city } : {}),
+      };
+      const winningPercentage = statsNumber(table, row, "WinPCT", "W_PCT");
+      const gamesBehind = statsNumber(table, row, "ConferenceGamesBack", "GB");
+      const conferenceRank = statsNumber(table, row, "PlayoffRank", "ConferenceRank");
+      const divisionRank = statsNumber(table, row, "DivisionRank");
+      return {
+        team, ...(text(statsValue(table, row, "Conference")) ? { conference: requiredText(statsValue(table, row, "Conference")) } : {}),
+        ...(text(statsValue(table, row, "Division")) ? { division: requiredText(statsValue(table, row, "Division")) } : {}),
+        wins: requiredNumber(statsNumber(table, row, "WINS", "W")), losses: requiredNumber(statsNumber(table, row, "LOSSES", "L")),
+        ...(winningPercentage !== undefined ? { winningPercentage } : {}), ...(gamesBehind !== undefined ? { gamesBehind } : {}),
+        ...(conferenceRank !== undefined ? { conferenceRank } : {}), ...(divisionRank !== undefined ? { divisionRank } : {}),
+      };
+    });
+    return { season: input.season, seasonType, standings, meta: this.historicalMeta(response.latencyMs, input.season, seasonType, "stats.nba.com/leaguestandingsv3") };
+  }
+  async getHistoricalGameBoxScore(gameId: string): Promise<HistoricalGameBoxScoreResponse> {
+    const normalizedGameId = this.historicalGameId(gameId);
+    const response = await this.getJson(`${LIVE_BASE_URL}/boxscore/boxscore_${encodeURIComponent(normalizedGameId)}.json`);
+    const rawGame = object(response.data.game);
+    this.archiveGameId(rawGame, normalizedGameId);
+    const boxScore = boxScoreFromLiveGame(rawGame, normalizedGameId);
+    if (boxScore.status.state !== "final") throw new ProviderError("DATA_UNAVAILABLE", `NBA game '${normalizedGameId}' is not final and is unavailable through the historical box-score path.`);
+    const date = this.historicalGameDate(rawGame);
+    if (!date) throw new ProviderError("PROVIDER_UNAVAILABLE", `nba.com did not return a game date for historical game '${normalizedGameId}'.`);
+    const game: Game = { gameId: normalizedGameId, date, status: boxScore.status, homeTeam: toTeam(rawGame.homeTeam), awayTeam: toTeam(rawGame.awayTeam), ...(text(object(rawGame.arena).arenaName) ? { venue: requiredText(object(rawGame.arena).arenaName) } : {}) };
+    return { historicalGame: { game, boxScore }, meta: this.historicalGameMeta(response.latencyMs, "cdn.nba.com/liveData/boxscore", date) };
+  }
+  async getHistoricalGameEvents(input: GetHistoricalGameEventsInput): Promise<HistoricalGameEventsResponse> {
+    const normalizedGameId = this.historicalGameId(input.gameId);
+    const { limit, offset } = pageInput(input.limit, input.cursor);
+    // Play-by-play archive payloads omit game status. Verify the matching box
+    // score before presenting the result as final historical game detail.
+    const [playByPlay, boxScore] = await Promise.all([
+      this.getJson(`${LIVE_BASE_URL}/playbyplay/playbyplay_${encodeURIComponent(normalizedGameId)}.json`),
+      this.getJson(`${LIVE_BASE_URL}/boxscore/boxscore_${encodeURIComponent(normalizedGameId)}.json`),
+    ]);
+    const rawGame = object(playByPlay.data.game);
+    const rawBoxScoreGame = object(boxScore.data.game);
+    this.archiveGameId(rawGame, normalizedGameId);
+    this.archiveGameId(rawBoxScoreGame, normalizedGameId);
+    if (toStatus(rawBoxScoreGame).state !== "final") throw new ProviderError("DATA_UNAVAILABLE", `NBA game '${normalizedGameId}' is not final and is unavailable through the historical play-by-play path.`);
+    const allEvents = eventsFromLiveGame(rawGame, normalizedGameId);
+    const gameDate = this.historicalGameDate(rawBoxScoreGame);
+    const events = allEvents.slice(offset, offset + limit);
+    const nextOffset = offset + events.length;
+    const hasMore = nextOffset < allEvents.length;
+    return { gameId: normalizedGameId, events, page: { limit, hasMore, isBoundedResult: hasMore, ...(hasMore ? { nextCursor: String(nextOffset) } : {}) }, meta: this.historicalGameMeta(Math.max(playByPlay.latencyMs, boxScore.latencyMs), "cdn.nba.com/liveData/playbyplay", gameDate) };
+  }
   async getCapabilities(): Promise<ProviderCapabilities> { return this.capabilities; }
   private currentSeason(): string { const now = new Date(); const year = now.getUTCFullYear() - (now.getUTCMonth() < 6 ? 1 : 0); return `${year}-${String((year + 1) % 100).padStart(2, "0")}`; }
 }

@@ -118,7 +118,7 @@ export class CachedDataProvider implements DataProvider {
   }
 
   getPlayerGameLog(input: GetPlayerGameLogInput) {
-    return this.getOrLoad(`historical:player-log:${input.playerId}:${input.season}:${input.seasonType ?? "Regular Season"}:${input.perMode ?? "PerGame"}:${input.dateFrom ?? ""}:${input.dateTo ?? ""}:${input.limit ?? 100}:${input.cursor ?? ""}`, this.ttls.historicalLogSeconds, () => this.provider.getPlayerGameLog(input));
+    return this.getOrLoad(`historical:player-log:${input.playerId}:${input.season}:${input.seasonType ?? "Regular Season"}:${input.dateFrom ?? ""}:${input.dateTo ?? ""}:${input.limit ?? 100}:${input.cursor ?? ""}`, this.ttls.historicalLogSeconds, () => this.provider.getPlayerGameLog(input));
   }
 
   getTeamSeasonStats(input: GetTeamSeasonStatsInput) {
@@ -126,7 +126,7 @@ export class CachedDataProvider implements DataProvider {
   }
 
   getTeamGameLog(input: GetTeamGameLogInput) {
-    return this.getOrLoad(`historical:team-log:${input.teamId}:${input.season}:${input.seasonType ?? "Regular Season"}:${input.perMode ?? "PerGame"}:${input.dateFrom ?? ""}:${input.dateTo ?? ""}:${input.limit ?? 100}:${input.cursor ?? ""}`, this.ttls.historicalLogSeconds, () => this.provider.getTeamGameLog(input));
+    return this.getOrLoad(`historical:team-log:${input.teamId}:${input.season}:${input.seasonType ?? "Regular Season"}:${input.dateFrom ?? ""}:${input.dateTo ?? ""}:${input.limit ?? 100}:${input.cursor ?? ""}`, this.ttls.historicalLogSeconds, () => this.provider.getTeamGameLog(input));
   }
 
   getLeagueLeaders(input: GetLeagueLeadersInput) {

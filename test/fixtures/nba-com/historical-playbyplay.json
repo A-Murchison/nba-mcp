@@ -1,0 +1,10 @@
+{
+  "game": {
+    "gameId": "0022300642",
+    "actions": [
+      { "actionNumber": 684, "period": 4, "clock": "PT00M12.00S", "orderNumber": 6650000, "teamId": 1610612764, "personId": 1630166, "actionType": "2pt", "description": "Deni Avdija makes Layup", "scoreHome": "104", "scoreAway": "118", "timeActual": "2024-01-27T19:19:12.3Z" },
+      { "actionNumber": 685, "period": 4, "clock": "PT00M00.00S", "orderNumber": 6660000, "actionType": "period", "description": "Period End", "scoreHome": "104", "scoreAway": "118", "timeActual": "2024-01-27T19:19:22.3Z" },
+      { "actionNumber": 686, "period": 4, "clock": "PT00M00.00S", "orderNumber": 6670000, "actionType": "game", "description": "Game End", "scoreHome": "104", "scoreAway": "118", "timeActual": "2024-01-27T19:19:24.9Z" }
+    ]
+  }
+}
