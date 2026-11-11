@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { pathToFileURL } from "node:url";
 
 import { loadConfig } from "./config.js";
 import { buildServerCapabilities, createNbaMcpServer } from "./mcpServer.js";
@@ -21,7 +22,7 @@ async function main(): Promise<void> {
   process.stderr.write(`nba-mcp ${config.provider} provider running on stdio\n`);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main().catch((error: unknown) => {
     const message = error instanceof Error ? error.message : String(error);
     process.stderr.write(`Failed to start nba-mcp server: ${message}\n`);
